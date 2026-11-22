@@ -121,7 +121,7 @@ impl World {
         for _ in 0..6 {
             first.teachers.push(gen::make_teacher(&mut rng, &mut next_id, TeacherKind::Student));
         }
-        for (grade, n) in [(4u8, 22), (5, 24), (6, 20)] {
+        for (grade, n) in [(4u8, 22), (5, 24), (6, 18)] {
             for _ in 0..n {
                 let mut s = gen::make_student(&mut rng, &mut next_id, &schools, grade, false);
                 s.weeks_enrolled = 4 + rng.below(60) as u32;

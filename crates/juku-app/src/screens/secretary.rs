@@ -40,10 +40,12 @@ pub fn window(
     let w = area.w - 16.0;
     let portrait_w = (w * 0.28).clamp(92.0, 130.0);
     let bubble_w = w - portrait_w - 10.0;
-    let text_w = bubble_w - 32.0;
+    // 吹き出しは bubble_w - 10、左右の余白 16 ずつ
+    let text_w = bubble_w - 10.0 - 32.0;
 
     // 本文の高さから、ウインドウの高さを決める
-    let lines = ui.text.wrap(body, t.font_body, FontWeight::Regular, text_w);
+    // 句読点のぶら下げが本文の枠からはみ出さないよう、1 文字ぶん狭く折り返す
+    let lines = ui.text.wrap(body, t.font_body, FontWeight::Regular, text_w - t.font_body);
     let lh = ui.text.line_height(t.font_body);
     let title_lines =
         ui.text.wrap(title, t.font_heading, FontWeight::Bold, text_w - if badge.is_some() { 48.0 } else { 0.0 });

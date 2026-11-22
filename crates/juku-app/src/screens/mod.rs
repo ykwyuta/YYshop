@@ -7,3 +7,4 @@ pub mod marketing;
 pub mod modals;
 pub mod secretary;
 pub mod title;
+pub mod tutorial;

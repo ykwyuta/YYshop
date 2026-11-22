@@ -80,7 +80,7 @@ pub fn advise(w: &World) -> Vec<Advice> {
     materials(w, &mut out);
     growth(w, &mut out);
     // 優先度の高い順。同じ優先度なら元の順（重要なものから足している）
-    out.sort_by(|a, b| b.priority.cmp(&a.priority));
+    out.sort_by_key(|a| std::cmp::Reverse(a.priority));
     out
 }
 

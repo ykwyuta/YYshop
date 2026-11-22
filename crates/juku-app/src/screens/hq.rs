@@ -364,6 +364,9 @@ fn materials_section(ui: &mut Ui, world: &mut World, action: &mut Option<HqActio
 fn help(ui: &mut Ui, is_web: bool, action: &mut Option<HqAction>) {
     let t = ui.theme;
     ui.heading("ヘルプ");
+    if ui.button("遊び方（チュートリアル）をもう一度見る", ButtonStyle::Secondary) {
+        *action = Some(HqAction::Tutorial);
+    }
     ui.card(16.0, |ui| {
         ui.set_spacing(8.0);
         ui.label_ex("遊び方の基本", t.font_body, FontWeight::Bold, t.text, Align::Left);

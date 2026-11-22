@@ -12,6 +12,8 @@ use juku_ui::{Align, Id, Ui};
 pub const SAVE_KEY: &str = "autosave";
 /// 秘書の自動報告の設定。
 const AUTO_REPORT_KEY: &str = "auto_report";
+/// チュートリアルを最後まで見た（またはスキップした）。
+const TUTORIAL_KEY: &str = "tutorial_done";
 /// 画面の最大幅（PC の横長ウィンドウでも縦長のレイアウトを保つ）
 const MAX_WIDTH: f32 = 520.0;
 const HEADER_H: f32 = 150.0;
@@ -74,6 +76,8 @@ struct SecretaryView {
 pub struct GameApp {
     world: Option<World>,
     has_save: bool,
+    /// 保存データの要約（スタート画面に出す）
+    save_summary: Option<screens::title::SaveSummary>,
     tab: Tab,
     /// 表示中の教室（World::classrooms の添字）
     selected: usize,
@@ -96,19 +100,23 @@ pub struct GameApp {
     seen_advice: std::collections::HashSet<String>,
     /// 週を進めたとき、新しい重要な報告があれば秘書が知らせる
     auto_report: bool,
+    /// チュートリアル（表示中）
+    tutorial: Option<screens::tutorial::Tutorial>,
+    tutorial_done: bool,
     seed_counter: u64,
 }
 
 impl GameApp {
     pub fn new(storage: &mut juku_platform::Storage) -> Self {
-        let has_save = storage
+        let save_summary = storage
             .load(SAVE_KEY)
             .and_then(|b| postcard::from_bytes::<World>(&b).ok())
-            .map(|w| w.save_version == juku_sim::SAVE_VERSION)
-            .unwrap_or(false);
+            .filter(|w| w.save_version == juku_sim::SAVE_VERSION)
+            .map(|w| screens::title::SaveSummary::from_world(&w));
         GameApp {
             world: None,
-            has_save,
+            has_save: save_summary.is_some(),
+            save_summary,
             tab: Tab::Classroom,
             selected: 0,
             course_segment: 0,
@@ -122,6 +130,8 @@ impl GameApp {
             secretary: None,
             seen_advice: Default::default(),
             auto_report: storage.load(AUTO_REPORT_KEY).map(|b| b != b"0").unwrap_or(true),
+            tutorial: None,
+            tutorial_done: storage.load(TUTORIAL_KEY).is_some(),
             seed_counter: 0,
         }
     }
@@ -134,6 +144,7 @@ impl GameApp {
                         log::warn!("保存に失敗しました: {e}");
                     } else {
                         self.has_save = true;
+                        self.save_summary = Some(screens::title::SaveSummary::from_world(w));
                     }
                 }
                 Err(e) => log::warn!("保存データの作成に失敗しました: {e}"),
@@ -159,6 +170,12 @@ impl GameApp {
         self.world = Some(World::new(seed));
         self.tab = Tab::Classroom;
         self.selected = 0;
+        self.secretary = None;
+        self.seen_advice.clear();
+        // はじめて遊ぶ人には、秘書が画面を案内する
+        if !self.tutorial_done {
+            self.tutorial = Some(screens::tutorial::Tutorial::new());
+        }
     }
 
     fn show_toast(&mut self, msg: impl Into<String>, now: f64) {
@@ -180,7 +197,12 @@ impl App for GameApp {
         art::chalkboard(ui, Rect::new(x0, s.y, w, s.h));
 
         if self.world.is_none() {
-            match screens::title::draw(ui, Rect::new(x0, s.y, w, s.h), self.has_save) {
+            match screens::title::draw(
+                ui,
+                Rect::new(x0, s.y, w, s.h),
+                self.save_summary.as_ref().filter(|_| self.has_save),
+                !self.tutorial_done,
+            ) {
                 Some(screens::title::TitleAction::Continue) => {
                     if !self.load(ctx) {
                         self.has_save = false;
@@ -209,7 +231,12 @@ impl App for GameApp {
                 || self.opening_area.is_some()
                 || self.star_offer.is_some()
                 || self.secretary.is_some()
+                || self.tutorial.is_some()
         };
+        // チュートリアル中は、案内しているタブを開く
+        if let Some(tab) = self.tutorial.as_ref().and_then(|t| t.tab()) {
+            self.tab = tab;
+        }
         let n_classrooms = self.world.as_ref().unwrap().classrooms.len();
         self.selected = self.selected.min(n_classrooms - 1);
         let ci = self.selected;
@@ -255,7 +282,10 @@ impl App for GameApp {
                 Some(screens::hq::HqAction::Toast(msg)) => self.show_toast(msg, now),
                 Some(screens::hq::HqAction::ForceReload) => self.confirm = Some(Confirm::Reload),
                 Some(screens::hq::HqAction::AutoReport(on)) => self.set_auto_report(on, ctx),
-                Some(screens::hq::HqAction::Tutorial) => {}
+                Some(screens::hq::HqAction::Tutorial) => {
+                    self.tutorial = Some(screens::tutorial::Tutorial::new());
+                    self.selected = 0;
+                }
                 Some(screens::hq::HqAction::Confirm(c)) => self.confirm = Some(c),
                 Some(screens::hq::HqAction::Star(competitor, star)) => {
                     self.star_offer = Some(StarOffer { competitor, star, classroom: ci })
@@ -301,6 +331,19 @@ impl App for GameApp {
         // モーダル
         ui.input_enabled = true;
         let area = Rect::new(x0, s.y + HEADER_H, w, s.h - HEADER_H - TAB_H);
+        if let Some(tut) = &mut self.tutorial {
+            let layout = screens::tutorial::Layout { screen: s, x0, w, header_h: HEADER_H, tab_h: TAB_H };
+            let world = self.world.as_mut().unwrap();
+            if let screens::tutorial::Outcome::Done = tut.draw(ui, world, &layout) {
+                self.tutorial = None;
+                self.tutorial_done = true;
+                let _ = ctx.storage.save(TUTORIAL_KEY, b"1");
+                self.tab = Tab::Classroom;
+                self.save(ctx);
+            }
+            self.draw_toast(ui, x0, w);
+            return;
+        }
         if let Some(view) = &mut self.secretary {
             if self
                 .world
