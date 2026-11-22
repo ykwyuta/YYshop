@@ -17,8 +17,10 @@ pub fn decode_png(bytes: &[u8]) -> Result<RgbaImage, String> {
     pixels.truncate(info.buffer_size());
     let pixels = match info.color_type {
         png::ColorType::Rgba => pixels,
-        png::ColorType::Rgb => pixels.chunks_exact(3).flat_map(|c| [c[0], c[1], c[2], 255]).collect(),
-        png::ColorType::GrayscaleAlpha => pixels.chunks_exact(2).flat_map(|c| [c[0], c[0], c[0], c[1]]).collect(),
+        png::ColorType::Rgb => pixels.as_chunks::<3>().0.iter().flat_map(|c| [c[0], c[1], c[2], 255]).collect(),
+        png::ColorType::GrayscaleAlpha => {
+            pixels.as_chunks::<2>().0.iter().flat_map(|c| [c[0], c[0], c[0], c[1]]).collect()
+        }
         png::ColorType::Grayscale => pixels.iter().flat_map(|&g| [g, g, g, 255]).collect(),
         png::ColorType::Indexed => return Err("png: palette not expanded".into()),
     };
@@ -51,7 +53,7 @@ impl RgbaImage {
                 let mut acc = [0u32; 4];
                 for sy in y0..y1 {
                     let row = &self.pixels[(sy * w + x0) * 4..(sy * w + x1) * 4];
-                    for px in row.chunks_exact(4) {
+                    for px in row.as_chunks::<4>().0 {
                         for k in 0..4 {
                             acc[k] += px[k] as u32;
                         }
