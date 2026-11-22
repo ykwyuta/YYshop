@@ -31,7 +31,15 @@ pub enum HqAction {
 
 pub const SECTIONS: [&str; 4] = ["経営", "財務・上場", "人材・教材", "その他"];
 
-pub fn draw(ui: &mut Ui, world: &mut World, is_web: bool, section: &mut usize, auto_report: bool) -> Option<HqAction> {
+/// `map_area` はタウンマップで選んでいるエリア。
+pub fn draw(
+    ui: &mut Ui,
+    world: &mut World,
+    is_web: bool,
+    section: &mut usize,
+    auto_report: bool,
+    map_area: &mut Option<usize>,
+) -> Option<HqAction> {
     let mut action = None;
     if let Some(i) = ui.segmented(&SECTIONS, *section) {
         *section = i;
@@ -39,7 +47,7 @@ pub fn draw(ui: &mut Ui, world: &mut World, is_web: bool, section: &mut usize, a
     match *section {
         0 => {
             classrooms(ui, world, &mut action);
-            opening(ui, world, &mut action);
+            crate::screens::townmap::draw(ui, world, map_area, &mut action);
             acquisitions(ui, world, &mut action);
         }
         1 => {
@@ -214,72 +222,6 @@ fn classrooms(ui: &mut Ui, world: &World, action: &mut Option<HqAction>) {
     }
     if world.classrooms.len() > 1 {
         ui.caption("画面上部の教室名の左右にある矢印で、教室を切り替えられます。教室が増えたら、教室長への業務委任を活用しましょう。");
-    }
-}
-
-fn opening(ui: &mut Ui, world: &World, action: &mut Option<HqAction>) {
-    let t = ui.theme;
-    let areas = world.open_areas();
-    let locked = world.locked_areas();
-    if areas.is_empty() && locked.is_empty() {
-        return;
-    }
-    ui.heading("新しい教室を開く");
-    ui.caption("2 教室目からは本部の運営費（週 ¥60,000／教室）がかかります。新しい教室は生徒ゼロから始まります。");
-    for a in areas {
-        let area = &world.areas[a];
-        let rivals: Vec<&str> = world
-            .competitors
-            .iter()
-            .filter(|c| !c.acquired && c.branch(a).is_some())
-            .map(|c| c.name.as_str())
-            .collect();
-        ui.card(16.0, |ui| {
-            ui.set_spacing(6.0);
-            let r = ui.alloc(26.0);
-            ui.text_in(r, &format!("{}エリア", area.name), t.font_heading, FontWeight::Bold, t.text, Align::Left);
-            let w = ui.measure(&format!("{}エリア", area.name), t.font_heading, FontWeight::Bold);
-            ui.badge_at(r.x + w + 8.0, r.y + 2.0, &area.region, t.series[4]);
-            ui.text_in(r, &format!("市場規模 ×{:.2}", area.pool), t.font_body, FontWeight::Bold, t.star, Align::Right);
-            ui.label_ex(&area.description, t.font_small, FontWeight::Regular, t.text_dim, Align::Left);
-            ui.kv_row("家賃", &format!("{}/週", format_yen(area.rent)), None);
-            let rv = if rivals.is_empty() { "なし".to_string() } else { rivals.join("・") };
-            ui.label_ex(&format!("競合：{rv}"), t.font_small, FontWeight::Regular, t.text, Align::Left);
-            let affordable = world.cash >= area.open_cost;
-            let label = format!("開校する（{}）", format_yen(area.open_cost));
-            let style = if affordable { ButtonStyle::Primary } else { ButtonStyle::Ghost };
-            if ui.button(&label, style) {
-                *action = Some(if affordable {
-                    HqAction::Open(a)
-                } else {
-                    HqAction::Toast(format!("資金が足りません（あと {}）", format_yen(area.open_cost - world.cash)))
-                });
-            }
-        });
-    }
-    if locked.is_empty() {
-        return;
-    }
-    ui.heading("まだ出店できないエリア");
-    for a in locked {
-        let area = &world.areas[a];
-        ui.card(14.0, |ui| {
-            ui.set_spacing(4.0);
-            let r = ui.alloc(24.0);
-            let dim = t.text_dim;
-            ui.text_in(r, &format!("{}エリア", area.name), t.font_body, FontWeight::Bold, dim, Align::Left);
-            let w = ui.measure(&format!("{}エリア", area.name), t.font_body, FontWeight::Bold);
-            ui.badge_at(r.x + w + 8.0, r.y + 1.0, &area.region, t.text_dim);
-            ui.text_in(r, &format!("市場規模 ×{:.2}", area.pool), t.font_small, FontWeight::Bold, dim, Align::Right);
-            ui.label_ex(&area.description, t.font_small, FontWeight::Regular, dim, Align::Left);
-            ui.label_ex(
-                &format!("条件：{}", area.unlock.label()),
-                t.font_small,
-                FontWeight::Bold,
-                t.accent,
-                Align::Left,
-            );
-        });
     }
 }
 

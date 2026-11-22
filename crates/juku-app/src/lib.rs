@@ -94,6 +94,8 @@ pub struct GameApp {
     star_offer: Option<StarOffer>,
     /// 本部タブのセクション
     hq_section: usize,
+    /// タウンマップで選んでいるエリア
+    map_area: Option<usize>,
     /// 秘書のウインドウ
     secretary: Option<SecretaryView>,
     /// もう伝えた報告（同じことを何度も言わない）
@@ -127,6 +129,7 @@ impl GameApp {
             confirm: None,
             star_offer: None,
             hq_section: 0,
+            map_area: None,
             secretary: None,
             seen_advice: Default::default(),
             auto_report: storage.load(AUTO_REPORT_KEY).map(|b| b != b"0").unwrap_or(true),
@@ -171,6 +174,7 @@ impl GameApp {
         self.tab = Tab::Classroom;
         self.selected = 0;
         self.secretary = None;
+        self.map_area = None;
         self.seen_advice.clear();
         // はじめて遊ぶ人には、秘書が画面を案内する
         if !self.tutorial_done {
@@ -251,6 +255,7 @@ impl App for GameApp {
             let seg = &mut self.course_segment;
             let acc_seg = &mut self.accounting_segment;
             let hq_seg = &mut self.hq_section;
+            let map_area = &mut self.map_area;
             let mut hq_action = None;
             let is_web = ctx.is_web;
             let auto_report = self.auto_report;
@@ -262,7 +267,7 @@ impl App for GameApp {
                         Tab::Courses => screens::courses::draw(ui, world, ci, seg),
                         Tab::Marketing => screens::marketing::draw(ui, world, ci),
                         Tab::Accounting => screens::accounting::draw(ui, world, ci, acc_seg),
-                        Tab::Hq => hq_action = screens::hq::draw(ui, world, is_web, hq_seg, auto_report),
+                        Tab::Hq => hq_action = screens::hq::draw(ui, world, is_web, hq_seg, auto_report, map_area),
                     }
                 });
             });
@@ -328,8 +333,9 @@ impl App for GameApp {
             self.tab = t;
         }
 
-        // モーダル
-        ui.input_enabled = true;
+        // モーダル。このフレームで開いたばかりのモーダルには入力を渡さない
+        // （開くきっかけになったタップが、同じ位置にあるモーダルのボタンまで押してしまうため）
+        ui.input_enabled = modal_open;
         let area = Rect::new(x0, s.y + HEADER_H, w, s.h - HEADER_H - TAB_H);
         if let Some(tut) = &mut self.tutorial {
             let layout = screens::tutorial::Layout { screen: s, x0, w, header_h: HEADER_H, tab_h: TAB_H };
