@@ -12,7 +12,7 @@ use crate::model::*;
 use crate::report::*;
 use crate::rng::Rng;
 
-pub const SAVE_VERSION: u32 = 2;
+pub const SAVE_VERSION: u32 = 3;
 /// 2 教室目からかかる本部の運営費（教室ごと・週）。
 const HQ_OVERHEAD_PER_EXTRA_CLASSROOM: Yen = 40_000;
 const MAX_RIVAL_LOG: usize = 40;
@@ -48,8 +48,14 @@ pub struct World {
     pub unseen_exam_result: bool,
     pub padding_this_year: bool,
     /// 今週すでに支払った一時費用（開校・教材立ち上げ）。レポートに載せる
-    pending_hq: HqCosts,
-    next_id: u32,
+    pub(crate) pending_hq: HqCosts,
+    /// 今週の損益に載らないお金の動き（物件・買収・借入）
+    pub(crate) pending_flows: crate::finance::CapitalFlows,
+    /// 銀行からの借入
+    pub loans: Vec<crate::finance::Loan>,
+    /// 資金がマイナスの週が続いている数
+    pub negative_weeks: u32,
+    pub(crate) next_id: u32,
     weeks_since_event: u32,
 }
 
@@ -71,9 +77,24 @@ impl World {
                 pool: a.pool,
                 rent: a.rent,
                 open_cost: a.open_cost,
+                property_price: a.property_price,
             })
             .collect();
-        let competitors = data::COMPETITORS.iter().map(Competitor::from_def).collect();
+        let mut competitors: Vec<Competitor> = data::COMPETITORS.iter().map(Competitor::from_def).collect();
+        for c in competitors.iter_mut() {
+            let n = match c.style {
+                crate::market::CompetitorStyle::Elite => 2,
+                crate::market::CompetitorStyle::Independent => 0,
+                _ => 1,
+            };
+            for _ in 0..n {
+                c.stars.push(gen::make_star(&mut rng, &mut next_id));
+            }
+        }
+        // 緑町の個人塾は最初から後継者を探している
+        if let Some(c) = competitors.iter_mut().find(|c| c.name == "まなび舎 森田塾") {
+            c.for_sale = true;
+        }
 
         let manager = gen::make_manager(&mut rng, calendar.date(), &[]);
         let mut first = Classroom::new(
@@ -131,6 +152,9 @@ impl World {
             unseen_exam_result: false,
             padding_this_year: false,
             pending_hq: HqCosts::default(),
+            pending_flows: Default::default(),
+            loans: Vec::new(),
+            negative_weeks: 0,
             next_id,
             weeks_since_event: 0,
         };
@@ -191,7 +215,7 @@ impl World {
         v
     }
 
-    /// 企業価値の目安。
+    /// 企業価値の目安：現金 ＋ 物件 ＋ 直近の利益 × 6 ＋ ブランド − 借入残高。
     pub fn valuation(&self) -> Yen {
         let recent: Vec<&CompanyWeek> = self.history.iter().rev().take(13).collect();
         let annual = if recent.is_empty() {
@@ -199,7 +223,8 @@ impl World {
         } else {
             recent.iter().map(|r| r.net() as f64).sum::<f64>() / recent.len() as f64 * 52.0
         };
-        self.cash + (annual.max(0.0) * 6.0) as Yen + (self.brand * 30_000_000.0) as Yen
+        self.cash + self.property_assets() + (annual.max(0.0) * 6.0) as Yen + (self.brand * 30_000_000.0) as Yen
+            - self.debt()
     }
 
     // ------------------------------------------------------------------
@@ -408,6 +433,8 @@ impl World {
 
         // --- 本部 ---
         let mut hq = std::mem::take(&mut self.pending_hq);
+        let mut flows = std::mem::take(&mut self.pending_flows);
+        self.service_loans(&mut hq, &mut flows, &mut company_news);
         let (dev_cost, finished) = self.materials.advance();
         hq.development += dev_cost;
         if let Some(axis) = finished {
@@ -419,6 +446,18 @@ impl World {
         // --- 競合の動き（4 週ごと）---
         if calendar.week % 4 == 2 {
             self.run_competitors(&mut company_news);
+        }
+
+        // --- 資金ショート ---
+        if self.cash < 0 {
+            self.negative_weeks += 1;
+            self.trust = (self.trust - 0.01).max(0.0);
+            company_news.push(format!(
+                "資金がマイナスです（{}週目）。取引先や保護者の信頼が下がっています。融資や経費削減を検討してください",
+                self.negative_weeks
+            ));
+        } else {
+            self.negative_weeks = 0;
         }
 
         // --- 不祥事 ---
@@ -443,6 +482,7 @@ impl World {
                 .map(|(c, r)| (c.name.clone(), r.pnl.revenue(), r.pnl.net_profit(), r.total_students()))
                 .collect(),
             hq,
+            flows,
             cash: self.cash,
             news: company_news,
         });
@@ -707,5 +747,23 @@ impl World {
         }
         market::competitor_new_year(&mut self.competitors, &mut self.rng);
         self.materials.yearly_decay();
+        // 地価は年 2% 上がる
+        for a in self.areas.iter_mut() {
+            a.property_price = a.property_price * 102 / 100;
+        }
+        for c in self.classrooms.iter_mut().filter(|c| c.owned) {
+            c.property_value = c.property_value * 102 / 100;
+        }
+        // 引き抜かれた看板講師の穴を、競合は 1 年かけて埋める
+        for c in self.competitors.iter_mut().filter(|c| !c.acquired && !c.branches.is_empty()) {
+            let want = match c.style {
+                crate::market::CompetitorStyle::Elite => 2,
+                crate::market::CompetitorStyle::Independent => 0,
+                _ => 1,
+            };
+            while c.stars.len() < want {
+                c.stars.push(gen::make_star(&mut self.rng, &mut self.next_id));
+            }
+        }
     }
 }

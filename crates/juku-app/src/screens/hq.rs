@@ -1,8 +1,8 @@
-//! 本部タブ：教室一覧・新規開校・自社教材・年間カレンダー・入試結果・セーブ。
+//! 本部タブ：経営（教室・開校・買収）／財務（融資・物件）／人材・教材（スター講師・自社教材）／その他。
 
 use juku_render::{Color, FontWeight, Rect};
 use juku_sim::materials::{self, AXIS_COUNT, AXIS_DIFFICULTY, AXIS_LABELS, AXIS_NOTES, PROJECT_WEEKS};
-use juku_sim::{Calendar, Season, World};
+use juku_sim::{Calendar, Season, TeacherKind, World};
 use juku_ui::{Align, ButtonStyle, Ui};
 
 use crate::fmt::{format_yen, pct};
@@ -18,15 +18,41 @@ pub enum HqAction {
     Toast(String),
     /// キャッシュを削除して再読み込み（Web）
     ForceReload,
+    /// 確認してから実行する操作
+    Confirm(crate::Confirm),
+    /// スター講師への声かけ（競合, 講師）
+    Star(usize, usize),
 }
 
-pub fn draw(ui: &mut Ui, world: &mut World, is_web: bool) -> Option<HqAction> {
+pub const SECTIONS: [&str; 4] = ["経営", "財務", "人材・教材", "その他"];
+
+pub fn draw(ui: &mut Ui, world: &mut World, is_web: bool, section: &mut usize) -> Option<HqAction> {
+    let mut action = None;
+    if let Some(i) = ui.segmented(&SECTIONS, *section) {
+        *section = i;
+    }
+    match *section {
+        0 => {
+            classrooms(ui, world, &mut action);
+            opening(ui, world, &mut action);
+            acquisitions(ui, world, &mut action);
+        }
+        1 => {
+            finance(ui, world, &mut action);
+            properties(ui, world, &mut action);
+        }
+        2 => {
+            stars(ui, world, &mut action);
+            materials_section(ui, world, &mut action);
+        }
+        _ => others(ui, world, is_web, &mut action),
+    }
+    action
+}
+
+fn others(ui: &mut Ui, world: &mut World, is_web: bool, out: &mut Option<HqAction>) {
     let t = ui.theme;
     let mut action = None;
-
-    classrooms(ui, world, &mut action);
-    opening(ui, world, &mut action);
-    materials_section(ui, world, &mut action);
 
     ui.heading("年間カレンダー");
     ui.card(16.0, |ui| {
@@ -127,7 +153,9 @@ pub fn draw(ui: &mut Ui, world: &mut World, is_web: bool) -> Option<HqAction> {
         }
     });
     help(ui, is_web, &mut action);
-    action
+    if action.is_some() {
+        *out = action;
+    }
 }
 
 fn classrooms(ui: &mut Ui, world: &World, action: &mut Option<HqAction>) {
@@ -165,7 +193,7 @@ fn classrooms(ui: &mut Ui, world: &World, action: &mut Option<HqAction>) {
         });
     }
     if world.classrooms.len() > 1 {
-        ui.caption("画面上部の ‹ › で教室を切り替えられます。教室が増えたら、教室長への業務委任を活用しましょう。");
+        ui.caption("画面上部の教室名の左右にある矢印で、教室を切り替えられます。教室が増えたら、教室長への業務委任を活用しましょう。");
     }
 }
 
@@ -323,4 +351,206 @@ fn help(ui: &mut Ui, is_web: bool, action: &mut Option<HqAction>) {
         }
         ui.caption(&format!("バージョン {}", env!("CARGO_PKG_VERSION")));
     });
+}
+
+fn acquisitions(ui: &mut Ui, world: &World, action: &mut Option<HqAction>) {
+    let t = ui.theme;
+    ui.heading("塾の買収");
+    let targets = world.acquisition_targets();
+    if targets.is_empty() {
+        ui.caption(
+            "いま売りに出ている塾はありません。個人塾や中小塾は、後継者不足や経営難で売りに出ることがあります。",
+        );
+        return;
+    }
+    ui.caption("買収すると生徒と講師を引き継げます。経営が変わると 1〜2 割の生徒は辞めてしまいます。");
+    for comp in targets {
+        let c = &world.competitors[comp];
+        let price = world.acquisition_price(comp);
+        ui.card(16.0, |ui| {
+            ui.set_spacing(6.0);
+            let r = ui.alloc(26.0);
+            ui.text_in(r, &c.name, t.font_heading, FontWeight::Bold, t.text, Align::Left);
+            let w = ui.measure(&c.name, t.font_heading, FontWeight::Bold);
+            ui.badge_at(r.x + w + 10.0, r.y + 2.0, c.style.label(), t.series[2]);
+            for b in &c.branches {
+                let area = &world.areas[b.area];
+                let ours = world.classrooms.iter().find(|x| x.area == b.area).map(|x| x.name.clone());
+                let dest = match ours {
+                    Some(n) => format!("→ {n}に統合"),
+                    None => format!("→ {}校として開校", area.name),
+                };
+                ui.kv_row(&format!("{}・在籍 {} 人", area.name, b.total()), &dest, None);
+            }
+            ui.kv_row("授業の質", &format!("{:.0}", c.quality * 100.0), None);
+            let affordable = world.cash >= price;
+            let style = if affordable { ButtonStyle::Primary } else { ButtonStyle::Ghost };
+            if ui.button(&format!("買収する（{}）", format_yen(price)), style) {
+                *action = Some(if affordable {
+                    HqAction::Confirm(crate::Confirm::Acquire(comp))
+                } else {
+                    HqAction::Toast(format!(
+                        "資金が足りません（あと {}）。財務から融資を受けられます",
+                        format_yen(price - world.cash)
+                    ))
+                });
+            }
+        });
+    }
+}
+
+fn finance(ui: &mut Ui, world: &mut World, action: &mut Option<HqAction>) {
+    let t = ui.theme;
+    ui.heading("銀行融資");
+    let limit = world.credit_limit();
+    let rate = world.loan_rate();
+    ui.card(16.0, |ui| {
+        ui.set_spacing(8.0);
+        ui.kv_row("会社の資金", &format_yen(world.cash), None);
+        ui.kv_row("借入残高", &format_yen(world.debt()), Some(if world.debt() > 0 { t.negative } else { t.text }));
+        ui.kv_row("融資枠（あと借りられる額）", &format_yen(limit), Some(t.accent));
+        ui.kv_row("いま借りた場合の年利", &format!("{:.1}%", rate * 100.0), None);
+        ui.caption("融資枠は、直近の利益・所有物件（担保）・ブランド力・信頼で決まります。元金均等で毎週返済します。");
+        for years in [5u32, 10] {
+            ui.label_ex(&format!("{years} 年返済で借りる"), t.font_small + 1.0, FontWeight::Bold, t.text, Align::Left);
+            let amounts = [5_000_000, 10_000_000, 30_000_000];
+            let mut clicked = None;
+            ui.columns(3, 8.0, |ui, i| {
+                let amount = amounts[i];
+                let ok = amount <= limit;
+                let style = if ok { ButtonStyle::Secondary } else { ButtonStyle::Ghost };
+                let r = ui.alloc(40.0);
+                if ui.button_at(r, &crate::fmt::man(amount), style) {
+                    clicked = Some((amount, ok));
+                }
+            });
+            if let Some((amount, ok)) = clicked {
+                *action = Some(if !ok {
+                    HqAction::Toast("融資枠を超えています".into())
+                } else {
+                    match world.borrow(amount, years) {
+                        Ok(()) => {
+                            HqAction::Toast(format!("{} を借りました（年利 {:.1}%）", format_yen(amount), rate * 100.0))
+                        }
+                        Err(e) => HqAction::Toast(e),
+                    }
+                });
+            }
+        }
+    });
+    if world.loans.is_empty() {
+        return;
+    }
+    ui.heading("借入の一覧");
+    for l in world.loans.clone() {
+        ui.card(14.0, |ui| {
+            ui.set_spacing(6.0);
+            let r = ui.alloc(24.0);
+            ui.text_in(
+                r,
+                &format!("{}（{}）", format_yen(l.principal), l.taken.label()),
+                t.font_body,
+                FontWeight::Bold,
+                t.text,
+                Align::Left,
+            );
+            ui.text_in(
+                r,
+                &format!("年利 {:.1}%", l.rate * 100.0),
+                t.font_small,
+                FontWeight::Regular,
+                t.text_dim,
+                Align::Right,
+            );
+            ui.kv_row("残高", &format_yen(l.balance), Some(t.negative));
+            ui.kv_row("毎週の返済", &format!("{}（あと {} 週）", format_yen(l.weekly_payment()), l.weeks_left), None);
+            let r = ui.alloc(14.0);
+            ui.meter_at(r, 1.0 - l.balance as f32 / l.principal as f32, t.positive);
+            if ui.button(&format!("繰り上げ返済する（{}）", format_yen(l.balance)), ButtonStyle::Ghost) {
+                *action = Some(HqAction::Confirm(crate::Confirm::Repay(l.id)));
+            }
+        });
+    }
+}
+
+fn properties(ui: &mut Ui, world: &World, action: &mut Option<HqAction>) {
+    let t = ui.theme;
+    ui.heading("物件");
+    ui.caption("教室の物件を買うと家賃がなくなり、代わりに維持費（評価額の年 1.2%）がかかります。地価は毎年 2% 上がり、融資の担保にもなります。");
+    for (ci, c) in world.classrooms.iter().enumerate() {
+        let area = &world.areas[c.area];
+        ui.card(16.0, |ui| {
+            ui.set_spacing(6.0);
+            let r = ui.alloc(24.0);
+            ui.text_in(r, &c.name, t.font_body, FontWeight::Bold, t.text, Align::Left);
+            let (badge, color) = if c.owned { ("自社物件", t.positive) } else { ("賃貸", t.text_dim) };
+            ui.text_in(r, badge, t.font_small, FontWeight::Bold, color, Align::Right);
+            if c.owned {
+                ui.kv_row("評価額", &format_yen(c.property_value), Some(t.accent));
+                ui.kv_row("維持費", &format!("{}/週", format_yen(c.weekly_property_cost(area))), None);
+                if ui.button("売却する（手数料 5%）", ButtonStyle::Ghost) {
+                    *action = Some(HqAction::Confirm(crate::Confirm::SellProperty(ci)));
+                }
+            } else {
+                let price = area.property_price;
+                let upkeep = (price as f64 * juku_sim::classroom::PROPERTY_UPKEEP_RATE / 52.0) as i64;
+                ui.kv_row("家賃", &format!("{}/週", format_yen(area.rent)), None);
+                ui.kv_row("購入後の維持費", &format!("{}/週", format_yen(upkeep)), None);
+                let years = price as f64 / ((area.rent - upkeep).max(1) as f64 * 52.0);
+                ui.caption(&format!("家賃との差額で約 {years:.0} 年で元が取れます。"));
+                let affordable = world.cash >= price;
+                let style = if affordable { ButtonStyle::Secondary } else { ButtonStyle::Ghost };
+                if ui.button(&format!("購入する（{}）", format_yen(price)), style) {
+                    *action = Some(if affordable {
+                        HqAction::Confirm(crate::Confirm::BuyProperty(ci))
+                    } else {
+                        HqAction::Toast(format!("資金が足りません（あと {}）", format_yen(price - world.cash)))
+                    });
+                }
+            }
+        });
+    }
+}
+
+fn stars(ui: &mut Ui, world: &World, action: &mut Option<HqAction>) {
+    let t = ui.theme;
+    ui.heading("スター講師の引き抜き");
+    ui.caption("競合塾の看板講師に声をかけます。成功すると集客力が上がり、同じエリアの生徒も一部ついてきます。相手の塾は弱くなりますが、恨まれて仕返しの引き抜きが増えます。");
+    let targets = world.star_targets();
+    if targets.is_empty() {
+        ui.caption("いま声をかけられるスター講師はいません。");
+    }
+    for (comp, si) in targets {
+        let c = &world.competitors[comp];
+        let star = &c.stars[si];
+        let color = Color::rgb(c.color[0], c.color[1], c.color[2]);
+        ui.card(14.0, |ui| {
+            ui.set_spacing(6.0);
+            let r = ui.alloc(24.0);
+            ui.text_in(r, &format!("{} 先生", star.name), t.font_body, FontWeight::Bold, t.text, Align::Left);
+            ui.text_in(r, &c.name, t.font_small, FontWeight::Bold, color, Align::Right);
+            ui.kv_row("授業力 / 面倒見", &format!("{} / {}", star.skill, star.care), None);
+            ui.kv_row("いまの年俸", &format_yen(star.pay), None);
+            if c.offer_cooldown > 0 {
+                ui.caption(&format!("{}とは交渉したばかりです（あと {} 週）", c.name, c.offer_cooldown));
+            } else if ui.button("声をかける", ButtonStyle::Secondary) {
+                *action = Some(HqAction::Star(comp, si));
+            }
+        });
+    }
+    let ours: Vec<_> = world
+        .classrooms
+        .iter()
+        .flat_map(|c| c.teachers.iter().filter(|t| t.star).map(move |t| (c.name.clone(), t)))
+        .collect();
+    if !ours.is_empty() {
+        ui.heading("自塾のスター講師");
+        ui.card(14.0, |ui| {
+            ui.set_spacing(4.0);
+            for (room, s) in ours {
+                let kind = if s.kind == TeacherKind::Pro { "" } else { "（学生）" };
+                ui.kv_row(&format!("{}{kind}", s.name), &format!("{room}・授業力 {}", s.skill), Some(t.star));
+            }
+        });
+    }
 }

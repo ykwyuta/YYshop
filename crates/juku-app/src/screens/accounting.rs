@@ -217,6 +217,23 @@ fn company_view(ui: &mut Ui, world: &World) {
         ui.space(8.0);
         total_big(ui, "会社の純利益", last.net(), prev_net);
     });
+
+    if !last.flows.is_empty() {
+        ui.heading("投資・財務の動き（今週）");
+        ui.card(18.0, |ui| {
+            ui.set_spacing(4.0);
+            for (label, v) in last.flows.lines() {
+                if v == 0 {
+                    continue;
+                }
+                let r = ui.alloc(24.0);
+                ui.text_in(r, label, t.font_body, FontWeight::Regular, t.text_dim, Align::Left);
+                let c = if v >= 0 { t.positive } else { t.negative };
+                ui.text_in(r, &crate::fmt::format_signed(v), t.font_body, FontWeight::Regular, c, Align::Right);
+            }
+            ui.caption("物件の売買・買収・借入と返済は損益には入らず、資金だけが動きます。");
+        });
+    }
     assets(ui, world);
 }
 
@@ -226,10 +243,16 @@ fn assets(ui: &mut Ui, world: &World) {
     ui.card(18.0, |ui| {
         ui.set_spacing(8.0);
         ui.kv_row("現金", &format_yen(world.cash), None);
+        if world.property_assets() > 0 {
+            ui.kv_row("所有物件", &format_yen(world.property_assets()), None);
+        }
+        if world.debt() > 0 {
+            ui.kv_row("借入残高", &format!("-{}", format_yen(world.debt())), Some(t.negative));
+        }
         ui.kv_row("企業価値（目安）", &format_yen(world.valuation()), Some(t.accent));
         let annual: i64 = world.history.iter().rev().take(52).map(|r| r.net()).sum();
         ui.kv_row("直近 52 週の純利益", &man(annual), None);
-        ui.caption("企業価値は、現金・直近の利益・ブランド力から見積もっています。");
+        ui.caption("企業価値は、現金・物件・直近の利益・ブランド力から借入を引いて見積もっています。");
     });
 }
 

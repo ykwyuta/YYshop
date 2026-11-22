@@ -86,7 +86,7 @@ pub fn make_teacher(rng: &mut Rng, next_id: &mut u32, kind: TeacherKind) -> Teac
             (skill, care, (pay / 50.0) as Yen * 50)
         }
     };
-    Teacher { id, name, kind, skill: skill as u32, care: care as u32, pay, fatigue: 0.1 }
+    Teacher { id, name, kind, skill: skill as u32, care: care as u32, pay, fatigue: 0.1, star: false }
 }
 
 pub fn make_candidates(rng: &mut Rng, next_id: &mut u32) -> Vec<Teacher> {
@@ -113,4 +113,22 @@ pub fn make_manager(rng: &mut Rng, hired: Date, used_names: &[String]) -> Manage
     let ability = (staffing + teaching + sales) as i64;
     let salary = (4_000_000 + (ability - 135) * 40_000).max(3_500_000) / 100_000 * 100_000;
     Manager { name, staffing, teaching, sales, ethics, salary, hired, delegations: [false; 4] }
+}
+
+/// 競合塾の看板講師。
+pub fn make_star(rng: &mut Rng, next_id: &mut u32) -> Teacher {
+    let mut t = make_teacher(rng, next_id, TeacherKind::Pro);
+    t.skill = 84 + rng.below(14) as u32;
+    t.care = 50 + rng.below(45) as u32;
+    t.pay = (7_500_000 + (t.skill as Yen - 84) * 250_000 + rng.below(10) as Yen * 100_000) / 100_000 * 100_000;
+    t.star = true;
+    t
+}
+
+/// 買収した塾から引き継ぐ講師。塾の授業力 `quality`（0..1）に近い腕前。
+pub fn make_inherited_teacher(rng: &mut Rng, next_id: &mut u32, quality: f64, pro: bool) -> Teacher {
+    let kind = if pro { TeacherKind::Pro } else { TeacherKind::Student };
+    let mut t = make_teacher(rng, next_id, kind);
+    t.skill = (rng.normal(quality * 100.0, 8.0)).clamp(30.0, 95.0) as u32;
+    t
 }

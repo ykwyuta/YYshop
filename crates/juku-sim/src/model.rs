@@ -165,6 +165,9 @@ pub struct Teacher {
     pub pay: Yen,
     /// 疲労 0..1
     pub fatigue: f64,
+    /// スター講師（生徒を呼び込む看板講師）
+    #[serde(default)]
+    pub star: bool,
 }
 
 impl Teacher {

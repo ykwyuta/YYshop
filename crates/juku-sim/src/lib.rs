@@ -5,7 +5,9 @@
 
 pub mod calendar;
 pub mod classroom;
+pub mod corporate;
 pub mod data;
+pub mod finance;
 mod gen;
 pub mod market;
 pub mod materials;
@@ -16,6 +18,7 @@ pub mod world;
 
 pub use calendar::{Calendar, Date, Season};
 pub use classroom::{Classroom, ClassroomStats};
+pub use finance::{CapitalFlows, Loan, OfferLevel};
 pub use market::{Area, Branch, Competitor, CompetitorStyle, RivalMove, RivalMoveKind};
 pub use materials::{MaterialSource, Materials};
 pub use model::*;

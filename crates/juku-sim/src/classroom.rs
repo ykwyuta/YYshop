@@ -100,7 +100,16 @@ pub struct Classroom {
     pub review_count: u32,
     pub reviews: Vec<Review>,
     pub history: Vec<WeekReport>,
+    /// 教室の物件を所有している（家賃がかからない）
+    #[serde(default)]
+    pub owned: bool,
+    /// 所有物件の評価額
+    #[serde(default)]
+    pub property_value: Yen,
 }
+
+/// 物件維持費（固定資産税・修繕費）の年率。
+pub const PROPERTY_UPKEEP_RATE: f64 = 0.012;
 
 impl Course {
     pub(crate) fn new(kind: CourseKind, name: &str, fee: Yen) -> Self {
@@ -160,6 +169,21 @@ impl Classroom {
             review_count: 0,
             reviews: Vec::new(),
             history: Vec::new(),
+            owned: false,
+            property_value: 0,
+        }
+    }
+
+    pub fn star_teachers(&self) -> usize {
+        self.teachers.iter().filter(|t| t.star).count()
+    }
+
+    /// 週あたりの物件費用（家賃 または 維持費）。
+    pub fn weekly_property_cost(&self, area: &Area) -> Yen {
+        if self.owned {
+            (self.property_value as f64 * PROPERTY_UPKEEP_RATE / 52.0) as Yen
+        } else {
+            area.rent
         }
     }
 
@@ -269,6 +293,7 @@ impl Classroom {
             + 0.10 * self.awareness
             + 0.05 * (self.ratings.overall() - 3.0)
             + 0.05 * (trust - 0.5)
+            + 0.05 * self.star_teachers().min(2) as f64
     }
 
     /// コース 1 人あたりの月間原価（講師コストの按分＋教材原価）。
@@ -608,7 +633,11 @@ impl Classroom {
 
         pnl.teacher_cost = self.teachers.iter().map(|t| t.weekly_cost(summer)).sum();
         pnl.manager_cost = self.manager.salary / 52;
-        pnl.rent = area.rent;
+        if self.owned {
+            pnl.property_upkeep = self.weekly_property_cost(area);
+        } else {
+            pnl.rent = area.rent;
+        }
         pnl.materials_cost = (n * monthly_to_weekly(ctx.materials.cost_per_student_monthly())) as Yen;
         pnl.depreciation = DEPRECIATION_PER_WEEK;
         pnl.other = OVERHEAD_PER_WEEK;
@@ -722,6 +751,9 @@ impl Classroom {
             }
             if s.motivation > 0.75 {
                 options.push((5, "子どもが「塾が楽しい」と言うようになりました。".into()));
+            }
+            if let Some(star) = self.teachers.iter().find(|t| t.star) {
+                options.push((5, format!("{}先生の授業が目当てで入塾しました。評判どおりです。", star.name)));
             }
             if options.is_empty() {
                 let neutral: [(u8, &str); 6] = [

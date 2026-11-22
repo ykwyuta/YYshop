@@ -20,6 +20,9 @@ pub struct Pnl {
     pub materials_cost: Yen,
     pub marketing: Yen,
     pub depreciation: Yen,
+    /// 自社物件の固定資産税・修繕費
+    #[serde(default)]
+    pub property_upkeep: Yen,
     pub other: Yen,
     // 税
     pub tax: Yen,
@@ -35,11 +38,12 @@ impl Pnl {
         ]
     }
 
-    pub fn cost_lines(&self) -> [(&'static str, Yen); 7] {
+    pub fn cost_lines(&self) -> [(&'static str, Yen); 8] {
         [
             ("講師人件費", self.teacher_cost),
             ("教室長給与", self.manager_cost),
             ("家賃", self.rent),
+            ("物件維持費", self.property_upkeep),
             ("教材・模試原価", self.materials_cost),
             ("広告宣伝費", self.marketing),
             ("減価償却費", self.depreciation),
@@ -176,20 +180,28 @@ pub struct HqCosts {
     pub opening: Yen,
     /// 本部の運営費（2 教室目から）
     pub overhead: Yen,
+    /// 支払利息
+    #[serde(default)]
+    pub interest: Yen,
+    /// スター講師の契約金
+    #[serde(default)]
+    pub recruiting: Yen,
 }
 
 impl HqCosts {
-    pub fn lines(&self) -> [(&'static str, Yen); 4] {
+    pub fn lines(&self) -> [(&'static str, Yen); 6] {
         [
             ("教材開発費", self.development),
             ("自社教材の立ち上げ", self.launch),
             ("開校費", self.opening),
             ("本部運営費", self.overhead),
+            ("支払利息", self.interest),
+            ("スター講師の契約金", self.recruiting),
         ]
     }
 
     pub fn total(&self) -> Yen {
-        self.development + self.launch + self.opening + self.overhead
+        self.lines().iter().map(|(_, v)| v).sum()
     }
 }
 
@@ -202,6 +214,9 @@ pub struct CompanyWeek {
     /// 教室ごとの（教室名, 売上, 純利益, 在籍数）
     pub classrooms: Vec<(String, Yen, Yen, u32)>,
     pub hq: HqCosts,
+    /// 損益に載らないお金の動き
+    #[serde(default)]
+    pub flows: crate::finance::CapitalFlows,
     pub cash: Yen,
     pub news: Vec<String>,
 }

@@ -124,6 +124,46 @@ pub const COMPETITORS: &[CompetitorDef] = &[
         color: [0x41, 0xC6, 0xC0],
         branches: &[(2, [20, 22, 25]), (4, [25, 28, 30])],
     },
+    CompetitorDef {
+        name: "小林算数教室",
+        style: CompetitorStyle::Independent,
+        brand: 0.25,
+        quality: 0.66,
+        care: 0.80,
+        fees: [22_000, 33_000, 45_000],
+        color: [0xB0, 0x8D, 0x6B],
+        branches: &[(0, [7, 7, 6])],
+    },
+    CompetitorDef {
+        name: "まなび舎 森田塾",
+        style: CompetitorStyle::Independent,
+        brand: 0.22,
+        quality: 0.60,
+        care: 0.85,
+        fees: [20_000, 31_000, 42_000],
+        color: [0x8F, 0xB0, 0x6B],
+        branches: &[(3, [9, 8, 7])],
+    },
+    CompetitorDef {
+        name: "進学ゼミ・ブライト",
+        style: CompetitorStyle::SmallChain,
+        brand: 0.32,
+        quality: 0.55,
+        care: 0.55,
+        fees: [24_000, 36_000, 50_000],
+        color: [0xE0, 0x7A, 0x5F],
+        branches: &[(2, [18, 16, 14]), (4, [16, 15, 13])],
+    },
+    CompetitorDef {
+        name: "東雲アカデミア",
+        style: CompetitorStyle::Independent,
+        brand: 0.28,
+        quality: 0.70,
+        care: 0.70,
+        fees: [26_000, 40_000, 54_000],
+        color: [0x9A, 0x9A, 0xC8],
+        branches: &[(4, [8, 9, 9])],
+    },
 ];
 
 pub struct AreaDef {
@@ -136,6 +176,8 @@ pub struct AreaDef {
     pub rent: i64,
     /// 開校費（敷金・内装・備品）
     pub open_cost: i64,
+    /// 教室の物件を買い取る場合の価格
+    pub property_price: i64,
 }
 
 pub const AREAS: &[AreaDef] = &[
@@ -146,6 +188,7 @@ pub const AREAS: &[AreaDef] = &[
         pool: 1.0,
         rent: 120_000,
         open_cost: 0,
+        property_price: 70_000_000,
     },
     AreaDef {
         name: "桜ヶ丘",
@@ -154,6 +197,7 @@ pub const AREAS: &[AreaDef] = &[
         pool: 1.35,
         rent: 170_000,
         open_cost: 9_000_000,
+        property_price: 105_000_000,
     },
     AreaDef {
         name: "港南",
@@ -162,6 +206,7 @@ pub const AREAS: &[AreaDef] = &[
         pool: 0.8,
         rent: 90_000,
         open_cost: 6_000_000,
+        property_price: 50_000_000,
     },
     AreaDef {
         name: "緑町",
@@ -170,6 +215,7 @@ pub const AREAS: &[AreaDef] = &[
         pool: 0.7,
         rent: 85_000,
         open_cost: 5_500_000,
+        property_price: 45_000_000,
     },
     AreaDef {
         name: "東雲",
@@ -178,6 +224,7 @@ pub const AREAS: &[AreaDef] = &[
         pool: 1.15,
         rent: 150_000,
         open_cost: 8_000_000,
+        property_price: 90_000_000,
     },
 ];
 

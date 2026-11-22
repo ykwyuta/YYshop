@@ -258,3 +258,170 @@ fn rival_opens_where_player_dominates() {
     }
     assert!(opened >= 1, "どこかのシードで競合が出店する");
 }
+
+// ---------------------------------------------------------------------------
+// 銀行融資
+// ---------------------------------------------------------------------------
+
+#[test]
+fn borrow_and_repay() {
+    let mut w = World::new(71);
+    let limit = w.credit_limit();
+    assert!(limit >= 5_000_000, "最初から少しは借りられる: {limit}");
+    assert!(w.borrow(limit + 1_000_000, 5).is_err(), "枠を超えては借りられない");
+    let cash = w.cash;
+    w.borrow(5_000_000, 5).unwrap();
+    assert_eq!(w.cash, cash + 5_000_000);
+    assert_eq!(w.debt(), 5_000_000);
+    assert!(w.credit_limit() < limit, "借りると枠が減る");
+    run_managed(&mut w, 10);
+    assert!(w.debt() < 5_000_000, "毎週返済される");
+    let interest: Yen = w.history.iter().map(|h| h.hq.interest).sum();
+    assert!(interest > 0);
+    assert_eq!(w.history[0].flows.loan_in, 5_000_000);
+    let id = w.loans[0].id;
+    w.repay_loan(id).unwrap();
+    assert_eq!(w.debt(), 0);
+}
+
+#[test]
+fn loan_is_repaid_over_term() {
+    let mut w = World::new(72);
+    w.borrow(2_000_000, 1).unwrap();
+    run_managed(&mut w, 52);
+    assert!(w.loans.is_empty(), "1 年ローンは 52 週で完済");
+}
+
+// ---------------------------------------------------------------------------
+// 物件
+// ---------------------------------------------------------------------------
+
+#[test]
+fn buying_property_replaces_rent_with_upkeep() {
+    let mut w = World::new(81);
+    let price = w.property_price(0);
+    assert!(w.buy_property(0).is_err(), "最初の資金では買えない");
+    w.cash = price + 10_000_000;
+    w.buy_property(0).unwrap();
+    assert!(w.classrooms[0].owned);
+    assert_eq!(w.property_assets(), price);
+    run_managed(&mut w, 2);
+    let pnl = &w.classrooms[0].last_report().unwrap().pnl;
+    assert_eq!(pnl.rent, 0);
+    assert!(pnl.property_upkeep > 0 && pnl.property_upkeep < w.areas[0].rent, "維持費は家賃より安い");
+    assert_eq!(w.history[0].flows.property_purchase, price);
+    let proceeds = w.sell_property(0).unwrap();
+    assert!(proceeds < price && proceeds > price * 9 / 10);
+    assert!(!w.classrooms[0].owned);
+}
+
+#[test]
+fn property_appreciates_yearly() {
+    let mut w = World::new(82);
+    w.cash = 200_000_000;
+    w.buy_property(0).unwrap();
+    let v = w.classrooms[0].property_value;
+    run_managed(&mut w, 52);
+    assert!(w.classrooms[0].property_value > v);
+}
+
+// ---------------------------------------------------------------------------
+// 買収
+// ---------------------------------------------------------------------------
+
+#[test]
+fn acquire_independent_into_new_classroom() {
+    let mut w = World::new(91);
+    let targets = w.acquisition_targets();
+    assert!(!targets.is_empty(), "最初から売りに出ている塾がある");
+    let t = targets[0];
+    let area = w.competitors[t].branches[0].area;
+    assert!(!w.classrooms.iter().any(|c| c.area == area));
+    let price = w.acquisition_price(t);
+    w.cash = price + 1_000_000;
+    let before = w.total_students();
+    let summary = w.acquire(t).unwrap();
+    assert!(!summary.is_empty());
+    assert_eq!(w.classrooms.len(), 2);
+    let room = w.classrooms.iter().find(|c| c.area == area).unwrap();
+    assert!(!room.students.is_empty() && !room.teachers.is_empty());
+    assert!(w.total_students() > before);
+    assert!(w.competitors[t].acquired);
+    assert!(w.acquisition_targets().iter().all(|&x| x != t));
+    assert!(w.acquire(t).is_err(), "同じ塾は 2 度買えない");
+    run_managed(&mut w, 8);
+    assert!(w.competitors[t].branches.is_empty(), "買収した塾は市場から消える");
+}
+
+#[test]
+fn acquire_merges_into_existing_classroom() {
+    let mut w = World::new(92);
+    // けやき台の個人塾を売りに出させて買う
+    let t = w.competitors.iter().position(|c| c.name == "小林算数教室").unwrap();
+    w.competitors[t].for_sale = true;
+    w.cash = 50_000_000;
+    let before = w.classrooms[0].students.len();
+    w.acquire(t).unwrap();
+    assert_eq!(w.classrooms.len(), 1, "同じエリアなので統合");
+    assert!(w.classrooms[0].students.len() > before);
+}
+
+#[test]
+fn majors_cannot_be_acquired() {
+    let mut w = World::new(93);
+    w.cash = 500_000_000;
+    w.competitors[0].for_sale = true;
+    assert!(w.acquire(0).is_err());
+}
+
+#[test]
+fn small_schools_come_up_for_sale_over_time() {
+    let mut w = World::new(94);
+    run_managed(&mut w, 156);
+    let listed = w.rival_log.iter().any(|m| m.kind == RivalMoveKind::ForSale) || w.acquisition_targets().len() > 1;
+    assert!(listed, "3 年のうちに新たに売りに出る塾がある");
+}
+
+// ---------------------------------------------------------------------------
+// スター講師
+// ---------------------------------------------------------------------------
+
+#[test]
+fn star_poaching_success_and_cooldown() {
+    let mut successes = 0;
+    for seed in 0..10 {
+        let mut w = World::new(1000 + seed);
+        w.cash = 100_000_000;
+        let (comp, star) = w.star_targets()[0];
+        let quality = w.competitors[comp].quality;
+        let teachers = w.classrooms[0].teachers.len();
+        let chance = w.star_offer_chance(comp, OfferLevel::Generous);
+        assert!(chance > w.star_offer_chance(comp, OfferLevel::Standard));
+        match w.offer_star(comp, star, 0, OfferLevel::Generous).unwrap() {
+            true => {
+                successes += 1;
+                assert_eq!(w.classrooms[0].teachers.len(), teachers + 1);
+                assert!(w.classrooms[0].teachers.iter().any(|t| t.star));
+                assert!(w.competitors[comp].quality < quality);
+                assert!(w.competitors[comp].grudge > 0, "引き抜かれた側は恨む");
+            }
+            false => assert_eq!(w.classrooms[0].teachers.len(), teachers),
+        }
+        assert!(w.offer_star(comp, 0, 0, OfferLevel::Generous).is_err(), "交渉後はしばらく声をかけられない");
+    }
+    assert!(successes >= 3, "破格の条件ならそれなりに成功する: {successes}/10");
+}
+
+#[test]
+fn star_teacher_boosts_attractiveness() {
+    let mut w = World::new(1100);
+    let stats = w.stats(0);
+    let before = w.classrooms[0].attractiveness(0, &stats, w.brand, w.trust);
+    let mut star = w.classrooms[0].teachers[0].clone();
+    star.star = true;
+    star.id = 9999;
+    w.classrooms[0].teachers.push(star);
+    let stats = w.stats(0);
+    let after = w.classrooms[0].attractiveness(0, &stats, w.brand, w.trust);
+    assert!(after > before);
+}

@@ -1,7 +1,7 @@
 //! モーダル：判断イベント・合格発表・確認。
 
 use juku_render::{FontWeight, Rect};
-use juku_sim::{Choice, GameEvent, World};
+use juku_sim::{Choice, GameEvent, OfferLevel, World};
 use juku_ui::{Align, ButtonStyle, Id, Ui};
 
 use crate::art;
@@ -195,6 +195,68 @@ pub fn open_classroom(ui: &mut Ui, world: &World, area: usize) -> Option<Option<
         }
         if ui.button("やめる", ButtonStyle::Ghost) {
             out = Some(None);
+        }
+        out
+    })
+}
+
+pub enum StarChoice {
+    Classroom(usize),
+    Offer(OfferLevel),
+    Cancel,
+}
+
+/// スター講師に声をかける：配属先と条件を選ぶ。
+pub fn star_offer(ui: &mut Ui, world: &World, comp: usize, star: usize, classroom: usize) -> Option<StarChoice> {
+    let t = ui.theme;
+    let c = &world.competitors[comp];
+    let Some(s) = c.stars.get(star) else { return Some(StarChoice::Cancel) };
+    let n = world.classrooms.len();
+    let classroom = classroom.min(n - 1);
+    ui.modal(Id::new("modal-star"), 480.0, |ui| {
+        ui.caption(&format!("スター講師の引き抜き・{}", c.name));
+        ui.label_ex(&format!("{} 先生", s.name), t.font_title, FontWeight::Bold, t.text, Align::Left);
+        ui.kv_row("授業力 / 面倒見", &format!("{} / {}", s.skill, s.care), None);
+        ui.kv_row("いまの年俸", &crate::fmt::format_yen(s.pay), None);
+        let mut out = None;
+        let r = ui.alloc(40.0);
+        ui.text_in(r, "配属先", t.font_body, FontWeight::Regular, t.text_dim, Align::Left);
+        let br = Rect::new(r.x + r.w * 0.35, r.y, r.w * 0.65, r.h);
+        let label = if n > 1 {
+            format!("{}（タップで変更）", world.classrooms[classroom].name)
+        } else {
+            world.classrooms[classroom].name.clone()
+        };
+        if ui.button_at(br, &label, ButtonStyle::Ghost) && n > 1 {
+            out = Some(StarChoice::Classroom((classroom + 1) % n));
+        }
+        for level in OfferLevel::ALL {
+            let (salary, bonus) = world.star_offer_terms(comp, star, level);
+            let chance = world.star_offer_chance(comp, level);
+            ui.card(12.0, |ui| {
+                ui.set_spacing(4.0);
+                let r = ui.alloc(24.0);
+                ui.text_in(r, level.label(), t.font_body, FontWeight::Bold, t.text, Align::Left);
+                ui.text_in(
+                    r,
+                    &format!("成功率 {:.0}%", chance * 100.0),
+                    t.font_body,
+                    FontWeight::Bold,
+                    t.accent,
+                    Align::Right,
+                );
+                ui.kv_row("年俸", &crate::fmt::format_yen(salary), None);
+                ui.kv_row("契約金（成功時のみ）", &crate::fmt::format_yen(bonus), None);
+                let ok = world.cash >= bonus;
+                let style = if ok { ButtonStyle::Primary } else { ButtonStyle::Ghost };
+                if ui.button("この条件で声をかける", style) {
+                    out = Some(StarChoice::Offer(level));
+                }
+            });
+        }
+        ui.caption("断られると 12 週間はこの塾と交渉できません。");
+        if ui.button("やめる", ButtonStyle::Ghost) {
+            out = Some(StarChoice::Cancel);
         }
         out
     })

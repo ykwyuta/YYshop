@@ -38,6 +38,28 @@ impl Tab {
     }
 }
 
+/// 確認してから実行する操作。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Confirm {
+    NewGame,
+    Reload,
+    BuyProperty(usize),
+    SellProperty(usize),
+    /// 塾の買収（competitors の添字）
+    Acquire(usize),
+    /// 繰り上げ返済（Loan の id）
+    Repay(u32),
+}
+
+/// スター講師への声かけ（モーダル表示中）。
+#[derive(Clone, Copy, Debug)]
+struct StarOffer {
+    competitor: usize,
+    star: usize,
+    /// 配属先の教室
+    classroom: usize,
+}
+
 pub struct GameApp {
     world: Option<World>,
     has_save: bool,
@@ -53,8 +75,10 @@ pub struct GameApp {
     /// 表示中の入試結果（exam_results の添字）
     exam_view: Option<usize>,
     toast: Option<(String, f64)>,
-    confirm_new_game: bool,
-    confirm_reload: bool,
+    confirm: Option<Confirm>,
+    star_offer: Option<StarOffer>,
+    /// 本部タブのセクション
+    hq_section: usize,
     seed_counter: u64,
 }
 
@@ -75,8 +99,9 @@ impl GameApp {
             opening_area: None,
             exam_view: None,
             toast: None,
-            confirm_new_game: false,
-            confirm_reload: false,
+            confirm: None,
+            star_offer: None,
+            hq_section: 0,
             seed_counter: 0,
         }
     }
@@ -117,7 +142,7 @@ impl GameApp {
     }
 
     fn show_toast(&mut self, msg: impl Into<String>, now: f64) {
-        self.toast = Some((msg.into(), now + 2.5));
+        self.toast = Some((msg.into(), now + 3.5));
     }
 }
 
@@ -159,9 +184,9 @@ impl App for GameApp {
             world.pending_event.is_some()
                 || world.unseen_exam_result
                 || self.exam_view.is_some()
-                || self.confirm_new_game
+                || self.confirm.is_some()
                 || self.opening_area.is_some()
-                || self.confirm_reload
+                || self.star_offer.is_some()
         };
         let n_classrooms = self.world.as_ref().unwrap().classrooms.len();
         self.selected = self.selected.min(n_classrooms - 1);
@@ -176,6 +201,7 @@ impl App for GameApp {
             let world = self.world.as_mut().unwrap();
             let seg = &mut self.course_segment;
             let acc_seg = &mut self.accounting_segment;
+            let hq_seg = &mut self.hq_section;
             let mut hq_action = None;
             let is_web = ctx.is_web;
             ui.scroll_area(id, viewport, 0.0, |ui| {
@@ -186,14 +212,14 @@ impl App for GameApp {
                         Tab::Courses => screens::courses::draw(ui, world, ci, seg),
                         Tab::Marketing => screens::marketing::draw(ui, world, ci),
                         Tab::Accounting => screens::accounting::draw(ui, world, ci, acc_seg),
-                        Tab::Hq => hq_action = screens::hq::draw(ui, world, is_web),
+                        Tab::Hq => hq_action = screens::hq::draw(ui, world, is_web, hq_seg),
                     }
                 });
             });
             let now = ui.input.time;
             match hq_action {
                 Some(screens::hq::HqAction::ShowExam(i)) => self.exam_view = Some(i),
-                Some(screens::hq::HqAction::NewGame) => self.confirm_new_game = true,
+                Some(screens::hq::HqAction::NewGame) => self.confirm = Some(Confirm::NewGame),
                 Some(screens::hq::HqAction::Save) => {
                     self.save(ctx);
                     self.show_toast("保存しました", now);
@@ -204,7 +230,11 @@ impl App for GameApp {
                 }
                 Some(screens::hq::HqAction::Open(area)) => self.opening_area = Some(area),
                 Some(screens::hq::HqAction::Toast(msg)) => self.show_toast(msg, now),
-                Some(screens::hq::HqAction::ForceReload) => self.confirm_reload = true,
+                Some(screens::hq::HqAction::ForceReload) => self.confirm = Some(Confirm::Reload),
+                Some(screens::hq::HqAction::Confirm(c)) => self.confirm = Some(c),
+                Some(screens::hq::HqAction::Star(competitor, star)) => {
+                    self.star_offer = Some(StarOffer { competitor, star, classroom: ci })
+                }
                 None => {}
             }
         }
@@ -270,37 +300,59 @@ impl App for GameApp {
                 Some(None) => self.opening_area = None,
                 None => {}
             }
-        } else if self.confirm_reload {
-            match screens::modals::confirm(
-                ui,
-                "キャッシュを削除して再読み込み",
-                "ブラウザに残っている古いファイルを削除して、最新版を読み込み直します。セーブデータは消えません（今の状態を保存してから再読み込みします）。",
-                "削除して再読み込み",
-            ) {
-                Some(true) => {
-                    self.confirm_reload = false;
-                    self.save(ctx);
-                    ctx.force_reload();
-                    let now = ui.input.time;
-                    self.show_toast("再読み込みしています…", now);
+        } else if let Some(offer) = self.star_offer {
+            match screens::modals::star_offer(ui, world, offer.competitor, offer.star, offer.classroom) {
+                Some(screens::modals::StarChoice::Classroom(next)) => {
+                    self.star_offer = Some(StarOffer { classroom: next, ..offer });
                 }
-                Some(false) => self.confirm_reload = false,
+                Some(screens::modals::StarChoice::Offer(level)) => {
+                    self.star_offer = None;
+                    let name = world.competitors[offer.competitor].stars[offer.star].name.clone();
+                    let msg = match world.offer_star(offer.competitor, offer.star, offer.classroom, level) {
+                        Ok(true) => format!("{name}先生が{}に来てくれました！", world.classrooms[offer.classroom].name),
+                        Ok(false) => format!("{name}先生に断られました"),
+                        Err(e) => e,
+                    };
+                    self.save(ctx);
+                    let now = ui.input.time;
+                    self.show_toast(msg, now);
+                }
+                Some(screens::modals::StarChoice::Cancel) => self.star_offer = None,
                 None => {}
             }
-        } else if self.confirm_new_game {
-            match screens::modals::confirm(
-                ui,
-                "新しいゲーム",
-                "今の進行状況は失われます。最初からやり直しますか？",
-                "最初から始める",
-            ) {
+        } else if let Some(c) = self.confirm {
+            let (title, body, ok) = confirm_text(world, c);
+            match screens::modals::confirm(ui, &title, &body, &ok) {
                 Some(true) => {
-                    self.confirm_new_game = false;
+                    self.confirm = None;
                     let now = ui.input.time;
-                    self.new_game(now);
-                    self.save(ctx);
+                    let result: Result<String, String> = match c {
+                        Confirm::NewGame => {
+                            self.new_game(now);
+                            Ok(String::new())
+                        }
+                        Confirm::Reload => {
+                            self.save(ctx);
+                            ctx.force_reload();
+                            Ok("再読み込みしています…".into())
+                        }
+                        Confirm::BuyProperty(ci) => world.buy_property(ci).map(|_| "物件を購入しました".into()),
+                        Confirm::SellProperty(ci) => {
+                            world.sell_property(ci).map(|v| format!("物件を {} で売却しました", fmt::format_yen(v)))
+                        }
+                        Confirm::Acquire(comp) => world.acquire(comp).map(|lines| lines.join("。")),
+                        Confirm::Repay(id) => world.repay_loan(id).map(|_| "繰り上げ返済しました".into()),
+                    };
+                    if c != Confirm::Reload {
+                        self.save(ctx);
+                    }
+                    match result {
+                        Ok(msg) if !msg.is_empty() => self.show_toast(msg, now),
+                        Ok(_) => {}
+                        Err(e) => self.show_toast(e, now),
+                    }
                 }
-                Some(false) => self.confirm_new_game = false,
+                Some(false) => self.confirm = None,
                 None => {}
             }
         }
@@ -318,10 +370,18 @@ impl GameApp {
             }
             let t = ui.theme;
             let s = ui.screen();
-            let tw = ui.measure(msg, t.font_body, FontWeight::Bold) + 40.0;
-            let r = Rect::new(x0 + (w - tw) * 0.5, s.bottom() - TAB_H - 70.0, tw, 44.0);
-            ui.dl.rect_border(r, t.bar, 22.0, 1.5, t.accent);
-            ui.text_in(r, msg, t.font_body, FontWeight::Bold, t.text, Align::Center);
+            // 長いメッセージは折り返す
+            let max_w = w - 48.0;
+            let lines = ui.text.wrap(msg, t.font_body, FontWeight::Bold, max_w - 40.0);
+            let lh = ui.text.line_height(t.font_body);
+            let tw = lines.iter().map(|l| ui.measure(l, t.font_body, FontWeight::Bold)).fold(0.0f32, f32::max) + 40.0;
+            let th = lh * lines.len() as f32 + 18.0;
+            let r = Rect::new(x0 + (w - tw) * 0.5, s.bottom() - TAB_H - 26.0 - th, tw, th);
+            ui.dl.rect_border(r, t.bar, 22.0_f32.min(th * 0.5), 1.5, t.accent);
+            for (i, line) in lines.iter().enumerate() {
+                let lr = Rect::new(r.x, r.y + 9.0 + lh * i as f32, r.w, lh);
+                ui.text_in(lr, line, t.font_body, FontWeight::Bold, t.text, Align::Center);
+            }
             ui.mem.request_repaint();
         }
     }
@@ -364,4 +424,59 @@ pub(crate) fn delta(ui: &Ui, cur: i64, prev: i64, good_when_up: bool) -> (String
         t.negative
     };
     (juku_sim::format_signed(d), color)
+}
+
+/// 確認ダイアログの文言：(タイトル, 本文, 実行ボタン)。
+fn confirm_text(world: &World, c: Confirm) -> (String, String, String) {
+    use fmt::format_yen;
+    match c {
+        Confirm::NewGame => (
+            "新しいゲーム".into(),
+            "今の進行状況は失われます。最初からやり直しますか？".into(),
+            "最初から始める".into(),
+        ),
+        Confirm::Reload => (
+            "キャッシュを削除して再読み込み".into(),
+            "ブラウザに残っている古いファイルを削除して、最新版を読み込み直します。セーブデータは消えません（今の状態を保存してから再読み込みします）。".into(),
+            "削除して再読み込み".into(),
+        ),
+        Confirm::BuyProperty(ci) => {
+            let c = &world.classrooms[ci];
+            let price = world.property_price(ci);
+            (
+                format!("{}の物件を購入", c.name),
+                format!(
+                    "{} で物件を買い取ります。家賃（{}/週）はなくなり、維持費がかかるようになります。",
+                    format_yen(price),
+                    format_yen(world.areas[c.area].rent)
+                ),
+                "購入する".into(),
+            )
+        }
+        Confirm::SellProperty(ci) => {
+            let c = &world.classrooms[ci];
+            let v = c.property_value * 95 / 100;
+            (
+                format!("{}の物件を売却", c.name),
+                format!("約 {} で売却します（手数料 5%）。以後は家賃がかかります。", format_yen(v)),
+                "売却する".into(),
+            )
+        }
+        Confirm::Acquire(comp) => {
+            let target = &world.competitors[comp];
+            let students = target.total_students();
+            (
+                format!("{}を買収", target.name),
+                format!(
+                    "{} で買収します。在籍 {students} 人のうち 1〜2 割は経営交代で辞めてしまいます。講師も引き継ぎます。",
+                    format_yen(world.acquisition_price(comp))
+                ),
+                "買収する".into(),
+            )
+        }
+        Confirm::Repay(id) => {
+            let bal = world.loans.iter().find(|l| l.id == id).map(|l| l.balance).unwrap_or(0);
+            ("繰り上げ返済".into(), format!("残高 {} を一括で返済します。", format_yen(bal)), "返済する".into())
+        }
+    }
 }

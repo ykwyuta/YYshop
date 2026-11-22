@@ -20,6 +20,8 @@ pub struct Area {
     pub pool: f64,
     pub rent: Yen,
     pub open_cost: Yen,
+    /// 物件を買い取る場合の価格（年 2% ずつ上がる）
+    pub property_price: Yen,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -32,6 +34,10 @@ pub enum CompetitorStyle {
     Online,
     /// 個別指導型：入塾キャンペーンと出店
     Individual,
+    /// 個人塾：地域密着の小さな塾。後継者不足で売りに出ることがある
+    Independent,
+    /// 中小塾：数教室の地場チェーン。経営が苦しくなると売りに出る
+    SmallChain,
 }
 
 impl CompetitorStyle {
@@ -41,6 +47,8 @@ impl CompetitorStyle {
             CompetitorStyle::Caring => "面倒見型",
             CompetitorStyle::Online => "格安オンライン型",
             CompetitorStyle::Individual => "個別指導型",
+            CompetitorStyle::Independent => "個人塾",
+            CompetitorStyle::SmallChain => "中小塾",
         }
     }
 
@@ -51,6 +59,7 @@ impl CompetitorStyle {
             CompetitorStyle::Caring => 1.0,
             CompetitorStyle::Online => 0.6,
             CompetitorStyle::Individual => 1.25,
+            CompetitorStyle::Independent | CompetitorStyle::SmallChain => 1.0,
         }
     }
 
@@ -59,7 +68,35 @@ impl CompetitorStyle {
             CompetitorStyle::Elite => 0.3,
             CompetitorStyle::Individual => 0.2,
             CompetitorStyle::Caring => 0.1,
-            CompetitorStyle::Online => 0.0,
+            CompetitorStyle::Online | CompetitorStyle::Independent | CompetitorStyle::SmallChain => 0.0,
+        }
+    }
+
+    /// 大手かどうか（買収できない）。
+    pub fn is_major(self) -> bool {
+        matches!(
+            self,
+            CompetitorStyle::Elite | CompetitorStyle::Caring | CompetitorStyle::Online | CompetitorStyle::Individual
+        )
+    }
+
+    /// 撤退を考え始める在籍数。
+    fn weak_threshold(self) -> u32 {
+        if self.is_major() {
+            18
+        } else {
+            6
+        }
+    }
+
+    /// スター講師の引き抜きに応じやすさ（基本確率）。
+    pub fn star_base_chance(self) -> f64 {
+        match self {
+            CompetitorStyle::Elite => 0.22,
+            CompetitorStyle::Caring => 0.30,
+            CompetitorStyle::Online => 0.35,
+            CompetitorStyle::Individual => 0.40,
+            CompetitorStyle::Independent | CompetitorStyle::SmallChain => 0.45,
         }
     }
 
@@ -104,6 +141,21 @@ pub struct Competitor {
     pub branches: Vec<Branch>,
     /// 新規出店時の月謝
     pub base_fees: [Yen; 3],
+    /// 看板のスター講師（引き抜きの対象）
+    #[serde(default)]
+    pub stars: Vec<crate::model::Teacher>,
+    /// 売りに出ている（個人塾・中小塾のみ）
+    #[serde(default)]
+    pub for_sale: bool,
+    /// 自塾が買収した
+    #[serde(default)]
+    pub acquired: bool,
+    /// スター講師に声をかけられるまでの週数
+    #[serde(default)]
+    pub offer_cooldown: u32,
+    /// 講師を引き抜かれた恨み（週数）。この間は仕返しの引き抜きが増える
+    #[serde(default)]
+    pub grudge: u32,
 }
 
 impl Competitor {
@@ -116,6 +168,11 @@ impl Competitor {
             care: d.care,
             color: d.color,
             base_fees: d.fees,
+            stars: Vec::new(),
+            for_sale: false,
+            acquired: false,
+            offer_cooldown: 0,
+            grudge: 0,
             branches: d
                 .branches
                 .iter()
@@ -172,6 +229,7 @@ pub enum RivalMoveKind {
     Open,
     Withdraw,
     Poach,
+    ForSale,
 }
 
 /// 競合の動き（ログ）。
@@ -226,9 +284,14 @@ pub fn competitor_turn(
     }
 
     for ci in 0..competitors.len() {
+        if competitors[ci].acquired {
+            continue;
+        }
         let style = competitors[ci].style;
         let name = competitors[ci].name.clone();
         let mut withdraw = Vec::new();
+        competitors[ci].offer_cooldown = competitors[ci].offer_cooldown.saturating_sub(4);
+        competitors[ci].grudge = competitors[ci].grudge.saturating_sub(4);
 
         for bi in 0..competitors[ci].branches.len() {
             let area = competitors[ci].branches[bi].area;
@@ -276,6 +339,14 @@ pub fn competitor_turn(
                             format!("{name}が{area_name}で入塾金無料キャンペーンを始めました"),
                         );
                     }
+                    CompetitorStyle::Independent | CompetitorStyle::SmallChain => {
+                        if rng.chance(0.5) {
+                            for f in b.fees.iter_mut() {
+                                *f = (*f * 95 / 100 / 1000) * 1000;
+                            }
+                            log(RivalMoveKind::PriceCut, format!("{name}が{area_name}で月謝を少し下げました"));
+                        }
+                    }
                 }
             } else if delta > 0.015 && rng.chance(0.5) {
                 let ratio = b.fees[1] as f64 / data::REFERENCE_FEES[1] as f64;
@@ -287,24 +358,44 @@ pub fn competitor_turn(
                 }
             }
 
-            if total < 40 || b.total() < 18 {
+            if total < 40 || b.total() < style.weak_threshold() {
                 b.weak_months += 1;
             } else {
                 b.weak_months = 0;
             }
             if b.weak_months >= 4 && style != CompetitorStyle::Online {
                 withdraw.push(bi);
-                moves.push(RivalMove {
-                    date,
-                    competitor: ci,
-                    area,
-                    kind: RivalMoveKind::Withdraw,
-                    text: format!("{name}が{area_name}から撤退しました"),
-                });
+                let text = if style.is_major() {
+                    format!("{name}が{area_name}から撤退しました")
+                } else {
+                    format!("{name}（{area_name}）が閉塾しました")
+                };
+                moves.push(RivalMove { date, competitor: ci, area, kind: RivalMoveKind::Withdraw, text });
             }
         }
         for bi in withdraw.into_iter().rev() {
             competitors[ci].branches.remove(bi);
+        }
+
+        // 個人塾・中小塾は、後継者不足や経営難で売りに出ることがある
+        if !style.is_major() && !competitors[ci].for_sale && !competitors[ci].branches.is_empty() {
+            let weak = competitors[ci].branches.iter().any(|b| b.weak_months > 0);
+            if rng.chance(if weak { 0.15 } else { 0.03 }) {
+                competitors[ci].for_sale = true;
+                let area = competitors[ci].branches[0].area;
+                let reason = if style == CompetitorStyle::Independent {
+                    "後継者がいないため"
+                } else {
+                    "経営の立て直しのため"
+                };
+                moves.push(RivalMove {
+                    date,
+                    competitor: ci,
+                    area,
+                    kind: RivalMoveKind::ForSale,
+                    text: format!("{name}が{reason}、売却先を探しています"),
+                });
+            }
         }
 
         // 品質のゆらぎ
@@ -341,7 +432,8 @@ pub fn competitor_turn(
         }
 
         // 引き抜き：同じエリアにいる自塾の人気講師を狙う
-        if poach.is_none() && rng.chance(style.poach_chance()) {
+        let poach_chance = if competitors[ci].grudge > 0 { style.poach_chance() * 2.5 } else { style.poach_chance() };
+        if poach.is_none() && rng.chance(poach_chance) {
             let target = player
                 .iter()
                 .filter(|p| competitors[ci].branch(p.area).is_some())
@@ -358,7 +450,7 @@ pub fn competitor_turn(
 
 /// 年度替わり：入試結果でブランドが動き、学年が上がる。
 pub fn competitor_new_year(competitors: &mut [Competitor], rng: &mut Rng) {
-    for c in competitors.iter_mut() {
+    for c in competitors.iter_mut().filter(|c| !c.acquired) {
         let result = clamp01(c.quality + rng.normal(0.0, 0.08));
         c.brand = clamp01(c.brand * 0.6 + result * 0.4);
         for b in c.branches.iter_mut() {
@@ -369,7 +461,7 @@ pub fn competitor_new_year(competitors: &mut [Competitor], rng: &mut Rng) {
 
 /// 毎週の自然な退塾。
 pub fn competitor_churn(competitors: &mut [Competitor], rng: &mut Rng) {
-    for c in competitors.iter_mut() {
+    for c in competitors.iter_mut().filter(|c| !c.acquired) {
         for b in c.branches.iter_mut() {
             for gi in 0..3 {
                 let leave = rng.round_stochastic(b.students[gi] as f64 * 0.004);
@@ -394,6 +486,7 @@ mod tests {
                 pool: a.pool,
                 rent: a.rent,
                 open_cost: a.open_cost,
+                property_price: a.property_price,
             })
             .collect();
         (comps, areas)
