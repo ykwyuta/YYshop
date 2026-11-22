@@ -1,0 +1,7 @@
+# Cloudflare Workers の静的アセット配信（サーバー処理なし）
+# デプロイ: ./tools/build-web.sh && npx wrangler deploy
+name = "yyshop"
+compatibility_date = "2025-09-01"
+
+[assets]
+directory = "./dist"

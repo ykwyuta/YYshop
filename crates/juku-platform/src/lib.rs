@@ -198,6 +198,23 @@ async fn init_gfx_web(window: Arc<Window>, size: PhysicalSize<u32>) -> Result<Gf
     init_gfx(make(wgpu::Backends::GL), window, size).await
 }
 
+/// 描画先の物理ピクセルサイズ。
+fn surface_size(window: &Window) -> PhysicalSize<u32> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        use winit::platform::web::WindowExtWebSys;
+        if let Some(canvas) = window.canvas() {
+            let dpr = window.scale_factor();
+            let w = (canvas.client_width() as f64 * dpr).round() as u32;
+            let h = (canvas.client_height() as f64 * dpr).round() as u32;
+            if w > 0 && h > 0 {
+                return PhysicalSize::new(w, h);
+            }
+        }
+    }
+    window.inner_size()
+}
+
 impl<A: App> Handler<A> {
     fn scale(&self) -> f64 {
         self.window.as_ref().map(|w| w.scale_factor()).unwrap_or(1.0)
@@ -238,6 +255,13 @@ impl<A: App> Handler<A> {
         let Some(app) = &mut self.app else { return };
 
         let scale = window.scale_factor() as f32;
+        // 描画先のサイズが変わっていたら作り直す（Web では Resized が来ない場合がある）
+        let want = surface_size(window);
+        if want.width > 0 && want.height > 0 && (want.width, want.height) != (gfx.config.width, gfx.config.height) {
+            gfx.config.width = want.width;
+            gfx.config.height = want.height;
+            gfx.surface.configure(&gfx.device, &gfx.config);
+        }
         let size = (gfx.config.width, gfx.config.height);
         text.set_scale(scale);
         self.input.begin_frame(self.start.elapsed().as_secs_f64());

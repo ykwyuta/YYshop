@@ -138,6 +138,7 @@ yyshop/
 - 画像（キャラクター・アイコン）は1枚のアトラスにまとめる
 - クリップ矩形のスタックでスクロール領域を切り抜く
 - Web 側は互換性を優先して **WebGL2 バックエンド**を標準にし、WebGPU が使える環境では WebGPU を使う
+  - canvas は一度 WebGPU のコンテキストを取ると WebGL2 に切り替えられないため、surface を作る前にアダプタの有無だけを確認してから選ぶ
 
 ---
 
@@ -148,7 +149,7 @@ yyshop/
 | イベントループ | `winit` | `winit`（web バックエンド、canvas に描画） |
 | 描画バックエンド | DX12（予備として Vulkan） | WebGL2（WebGPU があれば使用） |
 | 時刻 | `std::time` | `web-time`（`performance.now()`） |
-| セーブ | `%APPDATA%\YYshop\saves\*.sav` | IndexedDB（小さい設定は localStorage） |
+| セーブ | `%APPDATA%\YYshop\saves\*.sav` | localStorage（Base64）。データが大きくなったら IndexedDB へ移行 |
 | 乱数シード | OS 乱数 | `crypto.getRandomValues` |
 | スレッド | 必要なら使う | 使わない（sim はシングルスレッドで設計） |
 | アセット | exe に `include_bytes!` で埋め込み | 別ファイルを `fetch`（キャッシュが効く） |
@@ -190,7 +191,7 @@ wasm-opt -Oz dist/pkg/juku_web_bg.wasm -o dist/pkg/juku_web_bg.wasm
   /pkg/*
     Cache-Control: public, max-age=31536000, immutable
   /assets/*
-    Cache-Control: public, max-age=31536000, immutable
+    Cache-Control: public, max-age=604800, stale-while-revalidate=86400
   /*
     Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'
     X-Content-Type-Options: nosniff
@@ -230,3 +231,22 @@ wasm-opt -Oz dist/pkg/juku_web_bg.wasm -o dist/pkg/juku_web_bg.wasm
 4. `juku-ui`：レイアウト、Text、Button、Toggle、Stepper、Scroll、Card
 5. 経理タブ（損益計算書とグラフ）→ コースタブ → 集客タブ → 生徒タブの順に画面を作る
 6. 年度報告書と合格発表の演出
+
+---
+
+## 8. 実装状況（MVP 着手時点）
+
+| 項目 | 状況 |
+|------|------|
+| `juku-sim` | 週次シミュレーション（集客・学習・ストレス・退塾・講師の疲労・会計・口コミ）、2 月の入試と進級、倫理イベント 4 種、教室長への業務委任 4 種、セーブ（postcard）。テストとヘッドレスのバランス確認つき |
+| `juku-render` | wgpu の 2D バッチレンダラ。角丸矩形・円弧・線・五芒星を SDF で描画。fontdue によるグリフアトラス |
+| `juku-ui` | 即時モード UI。縦積み＋列分割のレイアウト、慣性スクロール、トグル・ステッパー（長押し連続）・セグメント・星・メーター・モーダル、ドーナツ／棒／折れ線／レーダーグラフ、禁則処理つき折り返し |
+| `juku-platform` | winit 0.30 + wgpu 30。Windows（DX12/Vulkan）と Web（WebGPU → WebGL2 フォールバック）。マウス・タッチ・ホイール、高 DPI |
+| `juku-app` | タイトル、教室・コース・集客・経理・年度の 5 タブ、判断イベントと合格発表のモーダル、自動保存 |
+| 配信 | `tools/build-web.sh` で `dist/` を生成（ファイル名ハッシュ・サイズチェック）、`wrangler.toml`（Workers 静的アセット）、GitHub Actions |
+
+設計からの変更点
+- Web のセーブは IndexedDB ではなく localStorage で開始した（データが小さいため）
+- フォントはファイル名にハッシュを付けていないため、キャッシュは 1 週間＋ stale-while-revalidate とした
+- 日本語入力（IME）は MVP の画面に文字入力がないため未着手（α で塾名入力とあわせて実装する）
+- 自社教材の五角形、複数教室、競合 AI の能動的な行動は α 以降
