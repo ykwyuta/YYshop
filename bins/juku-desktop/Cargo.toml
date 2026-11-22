@@ -1,0 +1,17 @@
+[package]
+name = "juku-desktop"
+description = "Windows（ネイティブ）版のエントリポイント"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "yyshop"
+path = "src/main.rs"
+
+[dependencies]
+juku-app.workspace = true
+juku-platform.workspace = true
+
+[lints]
+workspace = true

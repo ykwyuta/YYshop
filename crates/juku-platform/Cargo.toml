@@ -1,0 +1,27 @@
+[package]
+name = "juku-platform"
+description = "Windows / WebAssembly の差分を吸収する層（ウィンドウ・入力・保存・時刻）"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+juku-render.workspace = true
+juku-ui.workspace = true
+winit.workspace = true
+log.workspace = true
+web-time.workspace = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+pollster.workspace = true
+wgpu.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wgpu = { workspace = true, features = ["webgl"] }
+wasm-bindgen.workspace = true
+wasm-bindgen-futures.workspace = true
+js-sys.workspace = true
+web-sys = { workspace = true, features = ["Window", "Document", "Element", "HtmlCanvasElement", "Storage", "Response", "Location"] }
+
+[lints]
+workspace = true

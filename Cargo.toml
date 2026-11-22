@@ -1,0 +1,57 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/juku-sim",
+    "crates/juku-render",
+    "crates/juku-ui",
+    "crates/juku-platform",
+    "crates/juku-app",
+    "bins/juku-desktop",
+    "bins/juku-web",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+rust-version = "1.85"
+
+[workspace.dependencies]
+juku-sim = { path = "crates/juku-sim" }
+juku-render = { path = "crates/juku-render" }
+juku-ui = { path = "crates/juku-ui" }
+juku-platform = { path = "crates/juku-platform" }
+juku-app = { path = "crates/juku-app" }
+
+serde = { version = "1", features = ["derive"] }
+postcard = { version = "1", features = ["alloc"] }
+winit = "0.30"
+wgpu = "30"
+fontdue = "0.9"
+bytemuck = { version = "1", features = ["derive"] }
+pollster = "1"
+log = "0.4"
+web-time = "1"
+wasm-bindgen = "0.2.130"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+web-sys = "0.3"
+console_error_panic_hook = "0.1"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+
+# Web 版はサイズ優先
+[profile.release-web]
+inherits = "release"
+opt-level = "z"
+panic = "abort"
+strip = "debuginfo"
+
+[workspace.lints.clippy]
+# UI・描画の関数は座標と色を多く受け取るため許容する
+too_many_arguments = "allow"
+type_complexity = "allow"
+needless_range_loop = "allow"
