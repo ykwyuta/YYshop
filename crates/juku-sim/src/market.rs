@@ -25,6 +25,51 @@ pub struct Area {
     /// 市場規模の年間の伸び
     #[serde(default)]
     pub pool_growth: f64,
+    /// 地方（画面のまとまり）
+    #[serde(default)]
+    pub region: String,
+    /// 出店できるようになる条件
+    #[serde(default)]
+    pub unlock: AreaUnlock,
+}
+
+/// エリアに出店できるようになる条件。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AreaUnlock {
+    /// 最初から
+    #[default]
+    Start,
+    /// 教室をこの数だけ持つ
+    Classrooms(u32),
+    /// 上場している
+    Listed,
+}
+
+impl AreaUnlock {
+    pub fn label(self) -> String {
+        match self {
+            AreaUnlock::Start => "最初から".into(),
+            AreaUnlock::Classrooms(n) => format!("教室を {n} つ持つと出店できます"),
+            AreaUnlock::Listed => "上場すると出店できます".into(),
+        }
+    }
+}
+
+impl Area {
+    pub fn from_def(a: &data::AreaDef) -> Self {
+        Area {
+            name: a.name.into(),
+            address: a.address.into(),
+            description: a.description.into(),
+            pool: a.pool,
+            rent: a.rent,
+            open_cost: a.open_cost,
+            property_price: a.property_price,
+            pool_growth: a.pool_growth,
+            region: a.region.into(),
+            unlock: a.unlock,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -480,19 +525,7 @@ mod tests {
 
     fn setup() -> (Vec<Competitor>, Vec<Area>) {
         let comps = data::COMPETITORS.iter().map(Competitor::from_def).collect();
-        let areas = data::AREAS
-            .iter()
-            .map(|a| Area {
-                name: a.name.into(),
-                address: a.address.into(),
-                description: a.description.into(),
-                pool: a.pool,
-                rent: a.rent,
-                open_cost: a.open_cost,
-                property_price: a.property_price,
-                pool_growth: a.pool_growth,
-            })
-            .collect();
+        let areas = data::AREAS.iter().map(Area::from_def).collect();
         (comps, areas)
     }
 

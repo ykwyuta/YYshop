@@ -186,17 +186,25 @@ pub struct HqCosts {
     /// スター講師の契約金
     #[serde(default)]
     pub recruiting: Yen,
+    /// 教材外販の原価・営業費・税
+    #[serde(default)]
+    pub sales_cost: Yen,
+    /// 上場準備・上場維持の費用
+    #[serde(default)]
+    pub listing: Yen,
 }
 
 impl HqCosts {
-    pub fn lines(&self) -> [(&'static str, Yen); 6] {
+    pub fn lines(&self) -> [(&'static str, Yen); 8] {
         [
             ("教材開発費", self.development),
-            ("自社教材の立ち上げ", self.launch),
+            ("教材の立ち上げ・外販の開始", self.launch),
             ("開校費", self.opening),
             ("本部運営費", self.overhead),
             ("支払利息", self.interest),
             ("スター講師の契約金", self.recruiting),
+            ("教材外販の原価・営業費・税", self.sales_cost),
+            ("上場準備・上場維持費", self.listing),
         ]
     }
 
@@ -217,13 +225,17 @@ pub struct CompanyWeek {
     /// 損益に載らないお金の動き
     #[serde(default)]
     pub flows: crate::finance::CapitalFlows,
+    /// 教材外販の売上
+    #[serde(default)]
+    pub materials_sales: Yen,
     pub cash: Yen,
     pub news: Vec<String>,
 }
 
 impl CompanyWeek {
+    /// 売上（教室の売上 ＋ 教材外販）。
     pub fn revenue(&self) -> Yen {
-        self.classrooms.iter().map(|c| c.1).sum()
+        self.classrooms.iter().map(|c| c.1).sum::<Yen>() + self.materials_sales
     }
 
     pub fn classroom_net(&self) -> Yen {
@@ -231,7 +243,7 @@ impl CompanyWeek {
     }
 
     pub fn net(&self) -> Yen {
-        self.classroom_net() - self.hq.total()
+        self.classroom_net() + self.materials_sales - self.hq.total()
     }
 
     pub fn students(&self) -> u32 {

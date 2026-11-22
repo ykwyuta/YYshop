@@ -49,6 +49,9 @@ pub enum Confirm {
     Acquire(usize),
     /// 繰り上げ返済（Loan の id）
     Repay(u32),
+    StartIpo,
+    CancelIpo,
+    StopSales,
 }
 
 /// スター講師への声かけ（モーダル表示中）。
@@ -349,6 +352,15 @@ impl App for GameApp {
                         }
                         Confirm::Acquire(comp) => world.acquire(comp).map(|lines| lines.join("。")),
                         Confirm::Repay(id) => world.repay_loan(id).map(|_| "繰り上げ返済しました".into()),
+                        Confirm::StartIpo => world.start_ipo().map(|_| "上場準備を始めました".into()),
+                        Confirm::CancelIpo => {
+                            world.cancel_ipo();
+                            Ok("上場準備をやめました".into())
+                        }
+                        Confirm::StopSales => {
+                            world.stop_material_sales();
+                            Ok("教材の外販をやめました".into())
+                        }
                     };
                     if c != Confirm::Reload {
                         self.save(ctx);
@@ -481,6 +493,26 @@ fn confirm_text(world: &World, c: Confirm) -> (String, String, String) {
                 "買収する".into(),
             )
         }
+        Confirm::StartIpo => (
+            "上場準備を始める".into(),
+            format!(
+                "監査法人・証券会社と {} 週かけて準備します。費用は毎週 {}（総額 {}）かかります。準備が終わったときに条件を満たしていなければ、上場できず費用は戻りません。",
+                juku_sim::listing::IPO_PREP_WEEKS,
+                format_yen(juku_sim::listing::IPO_PREP_WEEKLY),
+                format_yen(juku_sim::listing::IPO_PREP_WEEKLY * juku_sim::listing::IPO_PREP_WEEKS as i64)
+            ),
+            "準備を始める".into(),
+        ),
+        Confirm::CancelIpo => (
+            "上場準備をやめる".into(),
+            "ここまでの準備費用は戻りません。もう一度上場するには、最初から準備し直す必要があります。".into(),
+            "やめる".into(),
+        ),
+        Confirm::StopSales => (
+            "教材の外販をやめる".into(),
+            format!("{} 塾との契約がすべて終わります。もう一度始めるには、営業体制をつくり直す費用がかかります。", world.materials.sales.contracts),
+            "外販をやめる".into(),
+        ),
         Confirm::Repay(id) => {
             let bal = world.loans.iter().find(|l| l.id == id).map(|l| l.balance).unwrap_or(0);
             ("繰り上げ返済".into(), format!("残高 {} を一括で返済します。", format_yen(bal)), "返済する".into())

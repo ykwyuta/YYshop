@@ -1,9 +1,10 @@
 //! 本部タブ：経営（教室・開校・買収）／財務（融資・物件）／人材・教材（スター講師・自社教材）／その他。
 
 use juku_render::{Color, FontWeight, Rect};
+use juku_sim::listing;
 use juku_sim::materials::{self, AXIS_COUNT, AXIS_DIFFICULTY, AXIS_LABELS, AXIS_NOTES, PROJECT_WEEKS};
-use juku_sim::{Calendar, Season, TeacherKind, World};
-use juku_ui::{Align, ButtonStyle, Ui};
+use juku_sim::{Calendar, ListingStatus, Season, TeacherKind, World};
+use juku_ui::{Align, ButtonStyle, Id, Series, Ui};
 
 use crate::fmt::{format_yen, pct};
 
@@ -24,7 +25,7 @@ pub enum HqAction {
     Star(usize, usize),
 }
 
-pub const SECTIONS: [&str; 4] = ["経営", "財務", "人材・教材", "その他"];
+pub const SECTIONS: [&str; 4] = ["経営", "財務・上場", "人材・教材", "その他"];
 
 pub fn draw(ui: &mut Ui, world: &mut World, is_web: bool, section: &mut usize) -> Option<HqAction> {
     let mut action = None;
@@ -38,12 +39,14 @@ pub fn draw(ui: &mut Ui, world: &mut World, is_web: bool, section: &mut usize) -
             acquisitions(ui, world, &mut action);
         }
         1 => {
+            listing_section(ui, world, &mut action);
             finance(ui, world, &mut action);
             properties(ui, world, &mut action);
         }
         2 => {
             stars(ui, world, &mut action);
             materials_section(ui, world, &mut action);
+            sales_section(ui, world, &mut action);
         }
         _ => others(ui, world, is_web, &mut action),
     }
@@ -200,19 +203,26 @@ fn classrooms(ui: &mut Ui, world: &World, action: &mut Option<HqAction>) {
 fn opening(ui: &mut Ui, world: &World, action: &mut Option<HqAction>) {
     let t = ui.theme;
     let areas = world.open_areas();
-    if areas.is_empty() {
+    let locked = world.locked_areas();
+    if areas.is_empty() && locked.is_empty() {
         return;
     }
     ui.heading("新しい教室を開く");
-    ui.caption("開校すると本部の運営費（週 ¥40,000／教室）がかかります。新しい教室は生徒ゼロから始まります。");
+    ui.caption("2 教室目からは本部の運営費（週 ¥60,000／教室）がかかります。新しい教室は生徒ゼロから始まります。");
     for a in areas {
         let area = &world.areas[a];
-        let rivals: Vec<&str> =
-            world.competitors.iter().filter(|c| c.branch(a).is_some()).map(|c| c.name.as_str()).collect();
+        let rivals: Vec<&str> = world
+            .competitors
+            .iter()
+            .filter(|c| !c.acquired && c.branch(a).is_some())
+            .map(|c| c.name.as_str())
+            .collect();
         ui.card(16.0, |ui| {
             ui.set_spacing(6.0);
             let r = ui.alloc(26.0);
             ui.text_in(r, &format!("{}エリア", area.name), t.font_heading, FontWeight::Bold, t.text, Align::Left);
+            let w = ui.measure(&format!("{}エリア", area.name), t.font_heading, FontWeight::Bold);
+            ui.badge_at(r.x + w + 8.0, r.y + 2.0, &area.region, t.series[4]);
             ui.text_in(r, &format!("市場規模 ×{:.2}", area.pool), t.font_body, FontWeight::Bold, t.star, Align::Right);
             ui.label_ex(&area.description, t.font_small, FontWeight::Regular, t.text_dim, Align::Left);
             ui.kv_row("家賃", &format!("{}/週", format_yen(area.rent)), None);
@@ -228,6 +238,30 @@ fn opening(ui: &mut Ui, world: &World, action: &mut Option<HqAction>) {
                     HqAction::Toast(format!("資金が足りません（あと {}）", format_yen(area.open_cost - world.cash)))
                 });
             }
+        });
+    }
+    if locked.is_empty() {
+        return;
+    }
+    ui.heading("まだ出店できないエリア");
+    for a in locked {
+        let area = &world.areas[a];
+        ui.card(14.0, |ui| {
+            ui.set_spacing(4.0);
+            let r = ui.alloc(24.0);
+            let dim = t.text_dim;
+            ui.text_in(r, &format!("{}エリア", area.name), t.font_body, FontWeight::Bold, dim, Align::Left);
+            let w = ui.measure(&format!("{}エリア", area.name), t.font_body, FontWeight::Bold);
+            ui.badge_at(r.x + w + 8.0, r.y + 1.0, &area.region, t.text_dim);
+            ui.text_in(r, &format!("市場規模 ×{:.2}", area.pool), t.font_small, FontWeight::Bold, dim, Align::Right);
+            ui.label_ex(&area.description, t.font_small, FontWeight::Regular, dim, Align::Left);
+            ui.label_ex(
+                &format!("条件：{}", area.unlock.label()),
+                t.font_small,
+                FontWeight::Bold,
+                t.accent,
+                Align::Left,
+            );
         });
     }
 }
@@ -553,4 +587,200 @@ fn stars(ui: &mut Ui, world: &World, action: &mut Option<HqAction>) {
             }
         });
     }
+}
+
+/// 上場と、塾長の個人資産。
+fn listing_section(ui: &mut Ui, world: &World, action: &mut Option<HqAction>) {
+    let t = ui.theme;
+    let l = &world.listing;
+
+    ui.heading("塾長の個人資産");
+    ui.card(16.0, |ui| {
+        ui.set_spacing(6.0);
+        let r = ui.alloc(40.0);
+        ui.text_in(r, &format_yen(world.personal_assets()), 30.0, FontWeight::Bold, t.text, Align::Right);
+        ui.text_in(r, "持ち株の評価額", t.font_small, FontWeight::Regular, t.text_dim, Align::Left);
+        if l.is_listed() {
+            let pct = l.founder_shares as f64 / l.shares as f64 * 100.0;
+            ui.kv_row("持ち株", &format!("{} 株（{pct:.0}%）", group(l.founder_shares)), None);
+            ui.kv_row("株価", &format!("{} 円", group(l.price().round() as u64)), Some(t.accent));
+        } else {
+            ui.caption(
+                "未上場の間は、会社の評価額（目安）がそのまま塾長の持ち株の価値です。上場すると株価で評価されます。",
+            );
+        }
+    });
+
+    match l.status {
+        ListingStatus::Listed => {
+            ui.heading("株式市場");
+            ui.card(16.0, |ui| {
+                ui.set_spacing(6.0);
+                let hist = &l.price_history;
+                let now = l.price();
+                let prev = hist.iter().rev().nth(4).copied().unwrap_or(now as f32) as f64;
+                let r = ui.alloc(40.0);
+                ui.text_in(r, &format!("{} 円", group(now.round() as u64)), 28.0, FontWeight::Bold, t.text, Align::Left);
+                let d = now - prev;
+                let pct = if prev > 0.0 { d / prev * 100.0 } else { 0.0 };
+                let c = if d >= 0.0 { t.positive } else { t.negative };
+                let sign = if d >= 0.0 { "+" } else { "" };
+                ui.text_in(r, &format!("4 週前比 {sign}{pct:.1}%"), t.font_body, FontWeight::Bold, c, Align::Right);
+                let recent: Vec<f32> = hist.iter().rev().take(52).rev().copied().collect();
+                if recent.len() >= 2 {
+                    let r = ui.alloc(150.0);
+                    ui.line_chart(r, &[], &[Series { values: &recent, color: t.accent }], false);
+                }
+                ui.kv_row("時価総額", &format_yen(l.market_cap), None);
+                ui.kv_row("発行済み株式数", &format!("{} 株", group(l.shares)), None);
+                ui.kv_row("公開価格", &format!("{} 円", group(l.ipo_price.round() as u64)), None);
+                ui.kv_row("上場で調達した資金", &format_yen(l.raised), None);
+                if let Some(d) = l.listed_on {
+                    ui.kv_row("上場日", &d.label(), None);
+                }
+                ui.caption(&format!(
+                    "株価は利益・成長率・ブランド力で決まり、毎週ゆれます。上場維持費（監査・開示）が週 {} かかります。都心エリアに出店できるようになりました。",
+                    format_yen(listing::LISTED_WEEKLY)
+                ));
+            });
+        }
+        ListingStatus::Preparing { weeks_left } => {
+            ui.heading("上場準備中");
+            ui.card(16.0, |ui| {
+                ui.set_spacing(6.0);
+                let done = listing::IPO_PREP_WEEKS - weeks_left;
+                ui.kv_row("上場まで", &format!("あと {weeks_left} 週"), Some(t.accent));
+                let r = ui.alloc(14.0);
+                ui.meter_at(r, done as f32 / listing::IPO_PREP_WEEKS as f32, t.accent);
+                ui.caption(&format!(
+                    "監査法人・証券会社と準備しています（週 {}）。準備が終わったとき、下の条件をすべて満たしていれば上場できます。",
+                    format_yen(listing::IPO_PREP_WEEKLY)
+                ));
+                requirements(ui, world);
+                ui.kv_row("上場時の理論株価（目安）", &format!("{} 円", group(world.share_price().round() as u64)), None);
+                if ui.button("上場準備をやめる", ButtonStyle::Ghost) {
+                    *action = Some(HqAction::Confirm(crate::Confirm::CancelIpo));
+                }
+            });
+        }
+        ListingStatus::Private => {
+            ui.heading("株式上場");
+            ui.card(16.0, |ui| {
+                ui.set_spacing(6.0);
+                ui.label_ex(
+                    "上場すると株式を売り出して大きな資金を調達でき、信用が上がって融資枠も広がります。都心エリアにも出店できるようになります。",
+                    t.font_small + 1.0,
+                    FontWeight::Regular,
+                    t.text,
+                    Align::Left,
+                );
+                requirements(ui, world);
+                if l.failed_attempts > 0 {
+                    ui.caption(&format!("上場審査に {} 回落ちています。", l.failed_attempts));
+                }
+                let ready = world.ipo_ready();
+                let label = format!(
+                    "上場準備を始める（{} 週・総額 {}）",
+                    listing::IPO_PREP_WEEKS,
+                    format_yen(listing::IPO_PREP_WEEKLY * listing::IPO_PREP_WEEKS as i64)
+                );
+                let style = if ready { ButtonStyle::Primary } else { ButtonStyle::Ghost };
+                if ui.button(&label, style) {
+                    *action = Some(if ready {
+                        HqAction::Confirm(crate::Confirm::StartIpo)
+                    } else {
+                        HqAction::Toast("上場の条件をまだ満たしていません".into())
+                    });
+                }
+            });
+        }
+    }
+}
+
+fn requirements(ui: &mut Ui, world: &World) {
+    let t = ui.theme;
+    for req in world.ipo_requirements() {
+        let r = ui.alloc(22.0);
+        let (mark, c) = if req.ok { ("達成", t.positive) } else { ("未達", t.negative) };
+        ui.badge_at(r.x, r.y, mark, c);
+        let label = ui.fit_text(&req.label, t.font_small + 1.0, FontWeight::Bold, r.w - 52.0);
+        ui.text_in(
+            Rect::new(r.x + 50.0, r.y, r.w - 50.0, r.h),
+            &label,
+            t.font_small + 1.0,
+            FontWeight::Bold,
+            t.text,
+            Align::Left,
+        );
+        let r = ui.alloc(18.0);
+        let detail = ui.fit_text(&req.detail, t.font_small, FontWeight::Regular, r.w - 50.0);
+        ui.text_in(
+            Rect::new(r.x + 50.0, r.y, r.w - 50.0, r.h),
+            &detail,
+            t.font_small,
+            FontWeight::Regular,
+            t.text_dim,
+            Align::Left,
+        );
+    }
+}
+
+/// 教材の外販。
+fn sales_section(ui: &mut Ui, world: &mut World, action: &mut Option<HqAction>) {
+    let t = ui.theme;
+    if !world.materials.is_own() {
+        return;
+    }
+    ui.heading("教材の外販");
+    let q = world.materials.quality_score();
+    let s = world.materials.sales.clone();
+    ui.card(16.0, |ui| {
+        ui.set_spacing(8.0);
+        ui.kv_row("外販での評価（教材の質）", &format!("{:.0}", q * 100.0), Some(if q >= 0.6 { t.positive } else { t.text }));
+        if !s.active {
+            ui.label_ex(
+                "自社教材を他の塾に月額で提供します。契約は教材の質・ブランド力・価格で増え、改訂を怠ると解約されます。",
+                t.font_small + 1.0,
+                FontWeight::Regular,
+                t.text,
+                Align::Left,
+            );
+            if ui.button(&format!("外販を始める（{}）", format_yen(materials::SALES_LAUNCH_COST)), ButtonStyle::Primary) {
+                *action = Some(match world.start_material_sales() {
+                    Ok(()) => HqAction::Toast("教材の外販を始めました".into()),
+                    Err(e) => HqAction::Toast(e),
+                });
+            }
+            return;
+        }
+        let r = ui.alloc(40.0);
+        ui.text_in(r, "契約している塾", t.font_small, FontWeight::Regular, t.text_dim, Align::Left);
+        ui.text_in(r, &format!("{} 塾", s.contracts), 28.0, FontWeight::Bold, t.text, Align::Right);
+        ui.kv_row("先週の新規契約 / 解約", &format!("+{} / -{}", s.last_new, s.last_cancel), None);
+        let weekly = (s.contracts as f64 * s.fee as f64 * 12.0 / 52.0) as i64;
+        ui.kv_row("売上（週）", &format_yen(weekly), Some(t.accent));
+        ui.caption(&format!(
+            "原価は売上の {:.0}%、営業・サポートの固定費は週 {} です。",
+            materials::SALES_COGS_RATE * 100.0,
+            format_yen(materials::SALES_TEAM_WEEKLY)
+        ));
+        ui.caption("1 塾あたりの月額");
+        let r = ui.alloc(52.0);
+        let d = ui.stepper_at(Id::new("sales-fee"), r, &format_yen(s.fee), Some(&format!("相場 {}", format_yen(materials::SALES_REFERENCE_FEE))));
+        if d != 0 {
+            world.set_material_fee(s.fee + d as i64 * 1_000);
+        }
+        if let Some(v) = ui.toggle_row(Id::new("sell-to-rivals"), "地域の競合塾にも売る", s.sell_to_rivals) {
+            world.set_sell_to_rivals(v);
+        }
+        ui.caption("競合する地域の個人塾・中小塾にも売ると契約は 4 割増えますが、その塾の授業の質も上がります。");
+        if ui.button("外販をやめる", ButtonStyle::Ghost) {
+            *action = Some(HqAction::Confirm(crate::Confirm::StopSales));
+        }
+    });
+}
+
+/// 3 桁区切り。
+fn group(v: u64) -> String {
+    crate::fmt::format_yen(v as i64).trim_start_matches('¥').to_string()
 }

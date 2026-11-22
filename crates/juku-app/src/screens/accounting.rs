@@ -206,6 +206,12 @@ fn company_view(ui: &mut Ui, world: &World) {
             ui.text_in(r, &format_yen(*net).replace('¥', ""), t.font_body, FontWeight::Bold, c, Align::Right);
         }
         total_plain(ui, "教室の純利益 計", last.classroom_net());
+        if last.materials_sales > 0 {
+            ui.space(8.0);
+            let r = ui.alloc(24.0);
+            ui.text_in(r, "教材外販の売上", t.font_body, FontWeight::Regular, t.text_dim, Align::Left);
+            ui.text_in(r, &format_yen(last.materials_sales), t.font_body, FontWeight::Bold, t.positive, Align::Right);
+        }
         ui.space(12.0);
         header_row(ui, "本部の費用", "");
         for (label, v) in last.hq.lines() {

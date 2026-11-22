@@ -37,6 +37,10 @@ pub fn draw(ui: &mut Ui, r: Rect, world: &mut World, ci: usize) -> (bool, Option
         t.text,
         Align::Left,
     );
+    if world.listing.is_listed() {
+        let w = ui.measure(&world.company_name, t.font_heading, FontWeight::Bold);
+        ui.badge_at(name_x + w + 8.0, r.y + 7.0, "上場", t.star);
+    }
 
     let c = &world.classrooms[ci];
     let label = if n > 1 { format!("{}（{}/{}）", c.name, ci + 1, n) } else { format!("{}・{}", c.name, c.address) };

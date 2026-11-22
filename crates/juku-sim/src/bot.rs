@@ -72,6 +72,13 @@ pub struct YearStats {
     pub negative_weeks: u32,
     pub scandals: u32,
     pub bankrupt: bool,
+    pub listed: bool,
+    /// 教材外販の契約塾数
+    pub sales_contracts: u32,
+    /// 直近 52 週の教材外販の売上
+    pub sales_revenue: Yen,
+    /// 塾長の個人資産（持ち株の評価額）
+    pub personal_assets: Yen,
 }
 
 /// 1 回分のプレイ結果。
@@ -171,6 +178,10 @@ pub fn play_with(seed: u64, strategy: Strategy, years: u32, setup: impl FnOnce(&
                 negative_weeks: negative,
                 scandals,
                 bankrupt: w.bankrupt,
+                listed: w.listing.is_listed(),
+                sales_contracts: w.materials.sales.contracts,
+                sales_revenue: w.history.iter().rev().take(52).map(|h| h.materials_sales).sum(),
+                personal_assets: w.personal_assets(),
             });
             churned = 0;
             new_students = 0;
@@ -284,6 +295,18 @@ fn act(w: &mut World, strategy: Strategy, week: u32) {
                 w.start_material_project(axis, 1);
             }
         }
+    }
+    // 教材が育ったら外販を始める
+    if w.materials.is_own()
+        && !w.materials.sales.active
+        && w.materials.quality_score() >= 0.6
+        && w.cash > crate::materials::SALES_LAUNCH_COST + reserve
+    {
+        let _ = w.start_material_sales();
+    }
+    // 条件を満たしたら上場準備（準備費用 2,600 万円の余裕を持って）
+    if w.listing.status == crate::listing::ListingStatus::Private && w.cash > 30_000_000 && w.ipo_ready() {
+        let _ = w.start_ipo();
     }
     // 物件：十分に余裕があれば買う
     for ci in 0..w.classrooms.len() {

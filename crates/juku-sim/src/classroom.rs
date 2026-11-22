@@ -22,7 +22,7 @@ pub const BASE_POOL: [f64; 3] = [3.6, 1.9, 0.95];
 /// 事務員・光熱費など（固定分）。
 const OVERHEAD_BASE_PER_WEEK: Yen = 40_000;
 /// 事務員・光熱費など（生徒 1 人あたり）。
-const OVERHEAD_PER_STUDENT_WEEK: Yen = 500;
+const OVERHEAD_PER_STUDENT_WEEK: Yen = 700;
 /// 塾選びの「勝者総取り」の強さ（魅力度の何乗でシェアが決まるか）。
 pub const SHARE_EXPONENT: i32 = 3;
 const DEPRECIATION_PER_WEEK: Yen = 25_000;

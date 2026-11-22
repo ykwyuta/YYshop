@@ -51,22 +51,27 @@ impl Loan {
 
 /// 損益には載らないお金の動き（その週の合計）。
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct CapitalFlows {
     pub loan_in: Yen,
     pub loan_principal: Yen,
     pub property_purchase: Yen,
     pub property_sale: Yen,
     pub acquisition: Yen,
+    /// 上場による資金調達
+    #[serde(default)]
+    pub equity: Yen,
 }
 
 impl CapitalFlows {
-    pub fn lines(&self) -> [(&'static str, Yen); 5] {
+    pub fn lines(&self) -> [(&'static str, Yen); 6] {
         [
             ("借入", self.loan_in),
             ("借入金の返済（元金）", -self.loan_principal),
             ("物件の購入", -self.property_purchase),
             ("物件の売却", self.property_sale),
             ("塾の買収", -self.acquisition),
+            ("上場による資金調達", self.equity),
         ]
     }
 

@@ -43,6 +43,18 @@ fn main() {
         if bankrupt > 0 {
             println!(" 倒産: {bankrupt}/{seeds}");
         }
+        let y = years as usize - 1;
+        let listed = runs.iter().filter(|r| r.last().listed).count();
+        let first_listed: Vec<usize> =
+            runs.iter().filter_map(|r| r.years.iter().position(|s| s.listed).map(|p| p + 1)).collect();
+        if listed > 0 || average(&runs, y, |s| s.sales_contracts as f64) > 0.0 {
+            println!(
+                " 上場 {listed}/{seeds}（上場した年 {first_listed:?}）／外販 契約 {:.0} 塾・年商 {}／塾長の個人資産 {}",
+                average(&runs, y, |s| s.sales_contracts as f64),
+                man(average(&runs, y, |s| s.sales_revenue as f64)),
+                man(average(&runs, y, |s| s.personal_assets as f64)),
+            );
+        }
     }
 
     // 価格：標準戦略で月謝を変えたときの 5 年後

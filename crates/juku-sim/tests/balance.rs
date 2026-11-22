@@ -48,18 +48,37 @@ fn doing_nothing_is_worse_than_staffing() {
 
 #[test]
 fn growth_pays_off_but_costs_early() {
-    let standard = runs(Strategy::Standard);
-    let growth = runs(Strategy::Growth);
+    // 拡大は北部・都心まで続くので、7 年で比べる
+    const GROWTH_YEARS: u32 = 7;
+    let standard: Vec<Run> = (0..SEEDS).map(|s| play(1000 + s, Strategy::Standard, GROWTH_YEARS)).collect();
+    let growth: Vec<Run> = (0..SEEDS).map(|s| play(1000 + s, Strategy::Growth, GROWTH_YEARS)).collect();
     // 1 年目は開校の持ち出しで資金が少ない（リスク）
     assert!(average(&growth, 0, |s| s.cash as f64) < average(&standard, 0, |s| s.cash as f64));
-    // 5 年後には企業価値で大きく上回る（報酬）
-    let y = last_year();
+    // 7 年後には企業価値で大きく上回る（報酬）
+    let y = GROWTH_YEARS as usize - 1;
     assert!(
         average(&growth, y, |s| s.valuation as f64) > average(&standard, y, |s| s.valuation as f64) * 2.0,
-        "成長戦略は 5 年後に標準の 2 倍以上の企業価値"
+        "成長戦略は 7 年後に標準の 2 倍以上の企業価値"
     );
     // ただし市場を独占はしない
     assert!(average(&growth, y, |s| s.share) < 0.5);
+    // 堅実に拡大すれば倒産しない
+    assert!(growth.iter().all(|r| !r.last().bankrupt));
+}
+
+#[test]
+fn late_game_goals_are_reachable() {
+    // 拡大を続ければ 10 年以内に上場でき、教材の外販も事業になる
+    let growth: Vec<Run> = (0..3).map(|s| play(1000 + s, Strategy::Growth, 10)).collect();
+    let listed = growth.iter().filter(|r| r.last().listed).count();
+    assert!(listed >= 2, "上場できたのは {listed}/3");
+    let first_year = growth.iter().filter_map(|r| r.years.iter().position(|y| y.listed)).min().unwrap();
+    assert!(first_year >= 4, "上場は早すぎない（{} 年目）", first_year + 1);
+    assert!(average(&growth, 9, |s| s.sales_contracts as f64) > 30.0, "外販の契約が育つ");
+    assert!(average(&growth, 9, |s| s.classrooms as f64) > 5.0, "北部・都心にも広がる");
+    // 何もしなければ上場できない
+    let standard: Vec<Run> = (0..3).map(|s| play(1000 + s, Strategy::Standard, 10)).collect();
+    assert!(standard.iter().all(|r| !r.last().listed));
 }
 
 #[test]
