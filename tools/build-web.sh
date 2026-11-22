@@ -11,6 +11,7 @@ PROFILE=release-web
 # フォント・アイコン・manifest の内容ハッシュ。URL に ?v=... として付け、
 # 中身が変わったらブラウザが必ず取り直すようにする（同じなら長期キャッシュが効く）
 ASSET_VERSION=$(cat assets/fonts/*.subset.otf assets/icon/icon.svg assets/icon/icon-*.png web/manifest.webmanifest \
+  $(find assets/images -name '*.png' | sort) \
   | sha256sum | cut -c1-10)
 export YYSHOP_ASSET_VERSION="$ASSET_VERSION"
 echo "asset version: $ASSET_VERSION"
@@ -41,6 +42,7 @@ sed -e "s/__JS__/$JS_NAME/" -e "s/__WASM__/$WASM_NAME/" -e "s/__V__/$ASSET_VERSI
   web/index.html > "$OUT/index.html"
 cp web/_headers "$OUT/_headers"
 cp assets/fonts/*.subset.otf assets/fonts/OFL.txt "$OUT/assets/fonts/"
+cp -r assets/images "$OUT/assets/images"
 mkdir -p "$OUT/assets/icon"
 cp assets/icon/icon.svg assets/icon/icon-32.png assets/icon/icon-180.png \
    assets/icon/icon-192.png assets/icon/icon-512.png "$OUT/assets/icon/"

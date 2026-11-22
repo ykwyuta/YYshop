@@ -1,10 +1,63 @@
-//! あとで画像生成で差し替える画像の枠。
+//! 地図・街・校舎の画像。
 //!
-//! 画像はまだ無いので、置き場所（ファイル名）を書いた仮の絵を描く。
-//! 一覧と生成用のプロンプトは `docs/images/README.md` にまとめてある。
+//! いまは `tools/gen_placeholder_images.py` で作った仮の画像が入っている。本番の画像は同じパスに上書きする
+//! （一覧と生成用のプロンプトは `docs/images/README.md`）。
+//! Windows 版は実行ファイルに埋め込み（隣に同じパスのファイルがあればそちらを優先）、Web 版は fetch する。
 
 use juku_render::{Color, FontWeight, Rect};
-use juku_ui::{Align, Ui};
+use juku_ui::{Align, ImageState, Ui};
+
+macro_rules! image_table {
+    ($($path:literal),* $(,)?) => {
+        /// ゲームが使う画像のパス。
+        pub const ALL: &[&str] = &[$($path),*];
+
+        /// 実行ファイルに埋め込んだ画像（Windows 版）。
+        #[cfg(not(target_arch = "wasm32"))]
+        pub fn embedded(path: &str) -> Option<&'static [u8]> {
+            match path {
+                $($path => Some(include_bytes!(concat!("../../../", $path))),)*
+                _ => None,
+            }
+        }
+    };
+}
+
+image_table!(
+    "assets/images/map/shutoken_map.png",
+    "assets/images/towns/town_kichijoji.png",
+    "assets/images/towns/town_seijogakuenmae.png",
+    "assets/images/towns/town_chofu.png",
+    "assets/images/towns/town_fuchu.png",
+    "assets/images/towns/town_futakotamagawa.png",
+    "assets/images/towns/town_urawa.png",
+    "assets/images/towns/town_omiya.png",
+    "assets/images/towns/town_tokorozawa.png",
+    "assets/images/towns/town_shibuya.png",
+    "assets/images/towns/town_myogadani.png",
+    "assets/images/towns/town_yokohama.png",
+    "assets/images/towns/town_tamaplaza.png",
+    "assets/images/towns/town_musashikosugi.png",
+    "assets/images/towns/town_toyosu.png",
+    "assets/images/towns/town_funabashi.png",
+    "assets/images/towns/town_kashiwa.png",
+    "assets/images/schools/school_kichijoji.png",
+    "assets/images/schools/school_seijogakuenmae.png",
+    "assets/images/schools/school_chofu.png",
+    "assets/images/schools/school_fuchu.png",
+    "assets/images/schools/school_futakotamagawa.png",
+    "assets/images/schools/school_urawa.png",
+    "assets/images/schools/school_omiya.png",
+    "assets/images/schools/school_tokorozawa.png",
+    "assets/images/schools/school_shibuya.png",
+    "assets/images/schools/school_myogadani.png",
+    "assets/images/schools/school_yokohama.png",
+    "assets/images/schools/school_tamaplaza.png",
+    "assets/images/schools/school_musashikosugi.png",
+    "assets/images/schools/school_toyosu.png",
+    "assets/images/schools/school_funabashi.png",
+    "assets/images/schools/school_kashiwa.png",
+);
 
 /// 首都圏の地図の背景画像。
 pub const MAP_FILE: &str = "assets/images/map/shutoken_map.png";
@@ -42,8 +95,20 @@ pub fn school_file(name: &str) -> String {
     format!("assets/images/schools/school_{}.png", slug(name))
 }
 
-/// 未生成の画像の代わりに描く仮の絵。斜線の地に、何の画像かとファイル名を書く。
-pub fn placeholder(ui: &mut Ui, r: Rect, title: &str, file: &str, tint: Color) {
+/// 画像を `r` いっぱいに描く。読み込み中・ファイルが無いときは、何の画像かを書いた代わりの絵を描く。
+pub fn picture(ui: &mut Ui, r: Rect, title: &str, file: &str, tint: Color) {
+    match ui.image(file) {
+        ImageState::Ready(info) => {
+            ui.image_cover(r, info, 10.0);
+            ui.dl.rect_border(r, Color::TRANSPARENT, 10.0, 1.0, Color::WHITE.with_alpha(0.12));
+        }
+        ImageState::Loading => placeholder(ui, r, title, "読み込み中…", tint),
+        ImageState::Missing => placeholder(ui, r, title, &format!("画像がありません：{file}"), tint),
+    }
+}
+
+/// 画像の代わりの絵。斜線の地に、何の画像かと状態を書く。
+fn placeholder(ui: &mut Ui, r: Rect, title: &str, note: &str, tint: Color) {
     let t = ui.theme;
     ui.dl.rect_gradient(r, tint.with_alpha(0.30), tint.with_alpha(0.12), 10.0);
     ui.dl.push_clip(r);
@@ -74,7 +139,7 @@ pub fn placeholder(ui: &mut Ui, r: Rect, title: &str, file: &str, tint: Color) {
         Color::WHITE.with_alpha(0.75),
         Align::Center,
     );
-    let label = ui.fit_text(&format!("画像未生成：{file}"), t.font_small - 2.0, FontWeight::Regular, r.w - 16.0);
+    let label = ui.fit_text(note, t.font_small - 2.0, FontWeight::Regular, r.w - 16.0);
     ui.text_in(
         Rect::new(r.x + 8.0, cy + 22.0, r.w - 16.0, 16.0),
         &label,
@@ -83,4 +148,28 @@ pub fn placeholder(ui: &mut Ui, r: Rect, title: &str, file: &str, tint: Color) {
         Color::WHITE.with_alpha(0.5),
         Align::Center,
     );
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_town_has_town_and_school_images() {
+        for a in juku_sim::data::AREAS {
+            assert_ne!(slug(a.name), "unknown", "{} のファイル名", a.name);
+            assert!(ALL.contains(&town_file(a.name).as_str()), "{} の街の画像", a.name);
+            assert!(ALL.contains(&school_file(a.name).as_str()), "{} の校舎の画像", a.name);
+        }
+        assert!(ALL.contains(&MAP_FILE));
+    }
+
+    #[test]
+    fn embedded_images_decode() {
+        for path in ALL {
+            let bytes = embedded(path).expect(path);
+            let img = juku_render::decode_png(bytes).unwrap_or_else(|e| panic!("{path}: {e}"));
+            assert!(img.width >= 640 && img.height >= 360, "{path}");
+        }
+    }
 }

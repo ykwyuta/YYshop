@@ -25,7 +25,7 @@ fn building(ui: &mut Ui, world: &World, ci: usize) {
         ui.set_spacing(6.0);
         let w = ui.width();
         let img = ui.alloc((w * 9.0 / 21.0).clamp(120.0, 220.0));
-        crate::images::placeholder(
+        crate::images::picture(
             ui,
             img,
             &format!("{}の校舎", c.name),

@@ -1,11 +1,11 @@
 //! タウンマップ：首都圏の実在の街を、緯度・経度どおりの地図の上で攻略していく。
 //!
 //! 海岸線・川・都県境・鉄道はおおまかな実際の形を緯度経度で持ち、画面の大きさに合わせて投影する。
-//! 地図の背景画像は未生成なので、今は図形で描いている（`images::MAP_FILE`）。
+//! 地図の背景画像（`images::MAP_FILE`）は `MAP_BOUNDS` の範囲を描いたもの。読み込めるまでは図形で描く。
 
 use juku_render::{Color, FontWeight, Rect};
 use juku_sim::World;
-use juku_ui::{Align, ButtonStyle, Ui};
+use juku_ui::{Align, ButtonStyle, ImageState, Ui};
 
 use crate::fmt::format_yen;
 use crate::images;
@@ -14,6 +14,8 @@ use crate::screens::hq::HqAction;
 /// 地図に映す範囲の中心（経度・緯度）と、幅・高さ（km）。
 const CENTER: (f64, f64) = (139.725, 35.685);
 const SPAN_KM: (f64, f64) = (58.0, 55.0);
+/// 地図の背景画像が描いている範囲（西端・東端の経度, 南端・北端の緯度）。
+const MAP_BOUNDS: ((f64, f64), (f64, f64)) = ((139.3672, 140.0828), (35.43, 35.94));
 /// 経度・緯度 1 度あたりの km（北緯 35.7 度）。
 const KM_PER_LON: f64 = 90.4;
 const KM_PER_LAT: f64 = 111.0;
@@ -381,17 +383,25 @@ pub fn draw(ui: &mut Ui, world: &World, selected: &mut Option<usize>, action: &m
         // ---- 陸・海・川・都県境 ----
         ui.dl.rect_gradient(m, Color::hex(0x31503F), Color::hex(0x263F32), 10.0);
         ui.dl.push_clip(m);
-        // 23 区のあたりは街が詰まっている
-        let (kx, ky) = proj.pt((139.72, 35.69));
-        ui.dl.circle(kx, ky, proj.km(13.0), Color::WHITE.with_alpha(0.035));
-        ui.dl.circle(kx, ky, proj.km(8.0), Color::WHITE.with_alpha(0.03));
-        fill_polygon(ui, &proj, TOKYO_BAY, Color::hex(0x1D3C55));
-        polyline(ui, &proj, TOKYO_BAY, 1.5, Color::hex(0x5B88A8).with_alpha(0.6));
-        for (_, pts) in RIVERS {
-            polyline(ui, &proj, pts, (proj.km(0.35)).clamp(2.0, 4.0), Color::hex(0x3B6E8C));
-        }
-        for pts in BORDERS {
-            dashed(ui, &proj, pts, 1.2, Color::WHITE.with_alpha(0.22));
+        if let ImageState::Ready(info) = ui.image(images::MAP_FILE) {
+            // 背景画像を緯度経度の範囲どおりに置く（はみ出す分は地図の枠で切る）
+            let ((lon0, lon1), (lat0, lat1)) = MAP_BOUNDS;
+            let (x0, y0) = proj.pt((lon0, lat1));
+            let (x1, y1) = proj.pt((lon1, lat0));
+            ui.dl.image(Rect::new(x0, y0, x1 - x0, y1 - y0), info.id, [0.0, 0.0, 1.0, 1.0], 0.0, 1.0);
+        } else {
+            // 23 区のあたりは街が詰まっている
+            let (kx, ky) = proj.pt((139.72, 35.69));
+            ui.dl.circle(kx, ky, proj.km(13.0), Color::WHITE.with_alpha(0.035));
+            ui.dl.circle(kx, ky, proj.km(8.0), Color::WHITE.with_alpha(0.03));
+            fill_polygon(ui, &proj, TOKYO_BAY, Color::hex(0x1D3C55));
+            polyline(ui, &proj, TOKYO_BAY, 1.5, Color::hex(0x5B88A8).with_alpha(0.6));
+            for (_, pts) in RIVERS {
+                polyline(ui, &proj, pts, (proj.km(0.35)).clamp(2.0, 4.0), Color::hex(0x3B6E8C));
+            }
+            for pts in BORDERS {
+                dashed(ui, &proj, pts, 1.2, Color::WHITE.with_alpha(0.22));
+            }
         }
         for (lon, lat, name) in PLACE_LABELS {
             let (x, y) = proj.pt((*lon, *lat));
@@ -544,12 +554,6 @@ pub fn draw(ui: &mut Ui, world: &World, selected: &mut Option<usize>, action: &m
             Color::WHITE.with_alpha(0.6),
             Align::Center,
         );
-        // 背景画像はまだ無い
-        let note = format!("背景画像 未生成：{}", images::MAP_FILE);
-        let nw = ui.measure(&note, t.font_small - 4.0, FontWeight::Regular) + 12.0;
-        let nr = Rect::new(m.right() - nw - 8.0, m.bottom() - 22.0, nw, 16.0);
-        ui.dl.rect(nr, Color::BLACK.with_alpha(0.4), 8.0);
-        ui.text_in(nr, &note, t.font_small - 4.0, FontWeight::Regular, Color::WHITE.with_alpha(0.5), Align::Center);
         ui.dl.pop_clip();
 
         // 凡例
@@ -653,7 +657,7 @@ fn detail(ui: &mut Ui, world: &World, a: usize, action: &mut Option<HqAction>) {
         // 街の風景（未生成）
         let w = ui.width();
         let img = ui.alloc((w * 9.0 / 16.0).min(200.0));
-        images::placeholder(ui, img, &format!("{}の街並み", area.name), &images::town_file(&area.name), t.series[4]);
+        images::picture(ui, img, &format!("{}の街並み", area.name), &images::town_file(&area.name), t.series[4]);
         let r = ui.alloc(26.0);
         let title = area.name.clone();
         ui.text_in(r, &title, t.font_heading, FontWeight::Bold, t.text, Align::Left);
@@ -734,7 +738,7 @@ fn detail(ui: &mut Ui, world: &World, a: usize, action: &mut Option<HqAction>) {
                 let c = &world.classrooms[ci];
                 let w = ui.width();
                 let img = ui.alloc((w * 9.0 / 16.0).min(180.0));
-                images::placeholder(ui, img, &format!("{}の校舎", c.name), &images::school_file(&area.name), t.accent);
+                images::picture(ui, img, &format!("{}の校舎", c.name), &images::school_file(&area.name), t.accent);
                 ui.label_ex(
                     &format!("{}：在籍 {} 人・講師 {} 人", c.name, c.students.len(), c.teachers.len()),
                     t.font_small,

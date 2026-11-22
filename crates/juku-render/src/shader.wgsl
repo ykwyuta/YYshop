@@ -10,6 +10,7 @@
 //   3 = 線分（カプセル）
 //   4 = 五芒星
 //   5 = スプライト（画像アトラス）
+//   6 = 画像（group 1 に読み込んだ 1 枚。ミップマップの段は画面上の縮み具合から選ぶ）
 
 struct Globals {
     // 画面サイズ（論理座標）
@@ -25,6 +26,8 @@ struct Globals {
 @group(0) @binding(2) var atlas_samp: sampler;
 @group(0) @binding(3) var sprite_atlas: texture_2d<f32>;
 @group(0) @binding(4) var sprite_samp: sampler;
+@group(1) @binding(0) var image_tex: texture_2d<f32>;
+@group(1) @binding(1) var image_samp: sampler;
 
 struct Inst {
     @location(0) rect: vec4<f32>,
@@ -125,6 +128,20 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     if (kind > 0.5 && kind < 1.5) {
         let a = textureSample(atlas_tex, atlas_samp, in.tex).r;
         return finish(vec4<f32>(in.color.rgb, in.color.a * a));
+    }
+
+    if (kind > 5.5) {
+        let half = in.rect.zw * 0.5;
+        let radius = min(in.params.y, min(half.x, half.y));
+        let dist = sd_round_box(p - in.rect.xy - half, half, radius);
+        let coverage = clamp(0.5 - dist / aa, 0.0, 1.0);
+        // 1 画素あたりのテクセル数からミップマップの段を決める（分岐の中なので微分は使えない）
+        let dims = vec2<f32>(textureDimensions(image_tex));
+        let span = abs(in.params2.zw - in.params2.xy) * dims;
+        let px = max(in.rect.zw * globals.scale, vec2<f32>(1.0, 1.0));
+        let lod = max(log2(max(span.x / px.x, span.y / px.y)), 0.0);
+        let c = textureSampleLevel(image_tex, image_samp, in.tex, lod);
+        return finish(vec4<f32>(c.rgb, c.a * coverage * in.params.w));
     }
 
     if (kind > 4.5) {

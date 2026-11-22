@@ -3,7 +3,10 @@
 use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;
 
-use crate::draw::{Color, DrawList, Instance};
+use std::collections::HashMap;
+
+use crate::draw::{image_id, Color, DrawList, Instance};
+use crate::image::RgbaImage;
 use crate::text::{TextSystem, ATLAS_SIZE};
 
 #[repr(C)]
@@ -22,6 +25,12 @@ pub struct Renderer {
     instance_capacity: usize,
     atlas: wgpu::Texture,
     srgb_target: bool,
+    /// 読み込んだ画像（id → group 1 のバインドグループ）
+    image_layout: wgpu::BindGroupLayout,
+    image_sampler: wgpu::Sampler,
+    images: HashMap<u32, wgpu::BindGroup>,
+    /// 画像を描かないときに group 1 に置いておく 1×1 の透明な画像
+    blank_image: wgpu::BindGroup,
 }
 
 impl Renderer {
@@ -127,9 +136,42 @@ impl Renderer {
             ],
         });
 
+        let image_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("image layout"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        });
+        let image_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("image sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
+            ..Default::default()
+        });
+        let blank = RgbaImage { width: 1, height: 1, pixels: vec![0; 4] };
+        let blank_image = Self::make_image(device, queue, &image_layout, &image_sampler, &blank);
+
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("juku-render pipeline layout"),
-            bind_group_layouts: &[Some(&layout)],
+            bind_group_layouts: &[Some(&layout), Some(&image_layout)],
             immediate_size: 0,
         });
 
@@ -178,22 +220,76 @@ impl Renderer {
             instance_capacity,
             atlas,
             srgb_target: format.is_srgb(),
+            image_layout,
+            image_sampler,
+            images: HashMap::new(),
+            blank_image,
         })
     }
 
+    fn make_image(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        layout: &wgpu::BindGroupLayout,
+        sampler: &wgpu::Sampler,
+        img: &RgbaImage,
+    ) -> wgpu::BindGroup {
+        let levels = img.mip_chain();
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("image"),
+            size: wgpu::Extent3d { width: img.width, height: img.height, depth_or_array_layers: 1 },
+            mip_level_count: levels.len() as u32,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        for (level, l) in levels.iter().enumerate() {
+            queue.write_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: &texture,
+                    mip_level: level as u32,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                &l.pixels,
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(l.width * 4),
+                    rows_per_image: Some(l.height),
+                },
+                wgpu::Extent3d { width: l.width, height: l.height, depth_or_array_layers: 1 },
+            );
+        }
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("image bind group"),
+            layout,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&view) },
+                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(sampler) },
+            ],
+        })
+    }
+
+    /// 画像を GPU に送り、`DrawList::image` の `id` で描けるようにする（同じ id は差し替え）。
+    /// 端末のテクスチャ上限を超える画像は縮める。
+    pub fn set_image(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, id: u32, img: RgbaImage) {
+        let limit = device.limits().max_texture_dimension_2d;
+        let img = img.fit_within(limit, limit);
+        let group = Self::make_image(device, queue, &self.image_layout, &self.image_sampler, &img);
+        self.images.insert(id, group);
+    }
+
+    /// 画像を GPU から外す。
+    pub fn remove_image(&mut self, id: u32) {
+        self.images.remove(&id);
+    }
+
     fn decode_sprite_png(bytes: &[u8]) -> Result<(u32, u32, Vec<u8>), String> {
-        let mut decoder = png::Decoder::new(std::io::Cursor::new(bytes));
-        decoder.set_transformations(png::Transformations::normalize_to_color8());
-        let mut reader = decoder.read_info().map_err(|e| format!("sprite atlas: {e}"))?;
-        let mut pixels = vec![0; reader.output_buffer_size().ok_or("sprite atlas too large")?];
-        let info = reader.next_frame(&mut pixels).map_err(|e| format!("sprite atlas: {e}"))?;
-        pixels.truncate(info.buffer_size());
-        let pixels = match info.color_type {
-            png::ColorType::Rgba => pixels,
-            png::ColorType::Rgb => pixels.chunks_exact(3).flat_map(|c| [c[0], c[1], c[2], 255]).collect(),
-            _ => return Err("sprite atlas must be RGB or RGBA".into()),
-        };
-        Ok((info.width, info.height, pixels))
+        let img = crate::image::decode_png(bytes).map_err(|e| format!("sprite atlas: {e}"))?;
+        Ok((img.width, img.height, img.pixels))
     }
 
     fn load_sprites(device: &wgpu::Device, queue: &wgpu::Queue, pngs: &[&[u8]]) -> Result<wgpu::Texture, String> {
@@ -320,10 +416,33 @@ impl Renderer {
             if n > 0 {
                 pass.set_pipeline(&self.pipeline);
                 pass.set_bind_group(0, &self.bind_group, &[]);
-                pass.set_vertex_buffer(0, self.instances.slice(..));
-                pass.draw(0..6, 0..n as u32);
+                // 画像が変わるところでドローコールを分ける（ほかの図形は group 1 を使わない）
+                let mut bound: Option<u32> = None;
+                pass.set_bind_group(1, &self.blank_image, &[]);
+                let mut start = 0;
+                for (i, inst) in list.instances.iter().enumerate() {
+                    let Some(id) = image_id(inst) else { continue };
+                    if bound == Some(id) {
+                        continue;
+                    }
+                    if i > start {
+                        draw_range(&mut pass, &self.instances, start, i);
+                    }
+                    pass.set_bind_group(1, self.images.get(&id).unwrap_or(&self.blank_image), &[]);
+                    bound = Some(id);
+                    start = i;
+                }
+                draw_range(&mut pass, &self.instances, start, n);
             }
         }
         queue.submit(std::iter::once(encoder.finish()));
     }
+}
+
+/// インスタンス `start..end` を描く。WebGL2 は先頭インスタンスの指定に対応しないので、
+/// 頂点バッファの開始位置をずらして 0 番から描く。
+fn draw_range(pass: &mut wgpu::RenderPass<'_>, instances: &wgpu::Buffer, start: usize, end: usize) {
+    let size = std::mem::size_of::<Instance>() as u64;
+    pass.set_vertex_buffer(0, instances.slice(start as u64 * size..end as u64 * size));
+    pass.draw(0..6, 0..(end - start) as u32);
 }

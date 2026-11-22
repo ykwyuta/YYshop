@@ -2,7 +2,7 @@
 
 mod art;
 mod fmt;
-mod images;
+pub mod images;
 mod portraits;
 mod screens;
 

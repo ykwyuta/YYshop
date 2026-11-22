@@ -106,6 +106,12 @@ const KIND_ARC: f32 = 2.0;
 const KIND_LINE: f32 = 3.0;
 const KIND_STAR: f32 = 4.0;
 const KIND_SPRITE: f32 = 5.0;
+const KIND_IMAGE: f32 = 6.0;
+
+/// 画像のインスタンスなら、その画像の id（`Renderer::set_image`）。
+pub(crate) fn image_id(inst: &Instance) -> Option<u32> {
+    (inst.params[0] == KIND_IMAGE).then_some(inst.params[2] as u32)
+}
 
 const NO_CLIP: [f32; 4] = [-1.0e9, -1.0e9, 1.0e9, 1.0e9];
 
@@ -207,6 +213,19 @@ impl DrawList {
             uv,
             params: [KIND_SPRITE, radius, 0.0, 0.0],
             params2: [0.0; 4],
+            color2: [0.0; 4],
+        });
+    }
+
+    /// 読み込んだ画像（`Renderer::set_image` の id）の UV 範囲を角丸で描く。
+    pub fn image(&mut self, r: Rect, id: u32, uv: [f32; 4], radius: f32, alpha: f32) {
+        self.push(Instance {
+            rect: [r.x, r.y, r.w, r.h],
+            color: Color::WHITE.arr(),
+            clip: NO_CLIP,
+            uv,
+            params: [KIND_IMAGE, radius, id as f32, alpha],
+            params2: uv,
             color2: [0.0; 4],
         });
     }
