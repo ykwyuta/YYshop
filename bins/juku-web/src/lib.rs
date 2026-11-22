@@ -27,6 +27,7 @@ pub fn start() {
         },
         canvas_id: "app".into(),
         icon_png: None,
+        images: juku_platform::ImageSource::Url { suffix: format!("?v={ASSET_VERSION}") },
     };
     juku_platform::run(config, juku_app::GameApp::new);
 }

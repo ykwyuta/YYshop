@@ -7,6 +7,7 @@
 //! カードの背景は「場所取り → 中身を描く → 高さが決まってから背景を埋める」方式で描く。
 
 mod charts;
+mod images;
 mod input;
 mod theme;
 mod widgets;
@@ -14,6 +15,7 @@ mod widgets;
 use std::collections::HashMap;
 
 pub use charts::*;
+pub use images::{ImageInfo, ImageState, Images};
 pub use input::InputState;
 pub use juku_render::{Color, DrawList, FontWeight, Rect, TextSystem};
 pub use theme::Theme;
@@ -57,6 +59,8 @@ pub struct Memory {
     repaint: bool,
     /// 長押しリピートの次回発火時刻
     repeat_at: HashMap<Id, f64>,
+    /// 画像の読み込み状態
+    pub images: Images,
 }
 
 impl Memory {
@@ -128,6 +132,25 @@ impl<'a> Ui<'a> {
 
     pub fn screen(&self) -> Rect {
         self.screen
+    }
+
+    /// 画像の状態（初めてなら読み込みを頼む）。読み込めたら再描画される。
+    pub fn image(&mut self, path: &str) -> ImageState {
+        self.mem.images.get(path)
+    }
+
+    /// 画像を `r` いっぱいに描く（はみ出す分は中央で切り取る）。
+    pub fn image_cover(&mut self, r: Rect, info: ImageInfo, radius: f32) {
+        let (iw, ih) = (info.width as f32, info.height as f32);
+        let (ra, ia) = (r.w / r.h.max(1.0), iw / ih.max(1.0));
+        let uv = if ia > ra {
+            let u = ra / ia;
+            [(1.0 - u) * 0.5, 0.0, (1.0 + u) * 0.5, 1.0]
+        } else {
+            let v = ia / ra;
+            [0.0, (1.0 - v) * 0.5, 1.0, (1.0 + v) * 0.5]
+        };
+        self.dl.image(r, info.id, uv, radius, 1.0);
     }
 
     fn layout(&self) -> &Layout {

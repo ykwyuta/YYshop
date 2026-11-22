@@ -29,7 +29,7 @@ fn teacher_shortage_names_classroom_and_candidate() {
     assert_eq!(a.priority, Priority::Urgent);
     assert_eq!(a.topic, Topic::Classroom);
     assert_eq!(a.classroom, Some(0));
-    assert!(a.body.contains("けやき台校"));
+    assert!(a.body.contains("吉祥寺校"));
     assert!(a.body.contains("充足率"));
     let candidate = &w.classrooms[0].candidates.iter().max_by_key(|t| t.skill).unwrap().name;
     assert!(a.body.contains(candidate.as_str()), "採用候補の名前を挙げる: {}", a.body);
@@ -51,7 +51,7 @@ fn negative_cash_warns_about_bankruptcy() {
 fn rival_price_cut_in_our_area_is_reported_with_prices() {
     let mut w = World::new(4);
     step(&mut w, 3);
-    // けやき台でスタディリンクが値下げした、という動きを作る
+    // 吉祥寺でスタディリンクが値下げした、という動きを作る
     let comp = w.competitors.iter().position(|c| c.name == "スタディリンク").unwrap();
     let date = w.calendar.date();
     w.rival_log.insert(
@@ -61,12 +61,12 @@ fn rival_price_cut_in_our_area_is_reported_with_prices() {
             competitor: comp,
             area: 0,
             kind: RivalMoveKind::PriceCut,
-            text: "スタディリンクがけやき台で月謝を 1 割値下げしました".into(),
+            text: "スタディリンクが吉祥寺で月謝を 1 割値下げしました".into(),
         },
     );
     let a = advise(&w).into_iter().find(|a| a.title.contains("値下げ")).expect("値下げが報告される");
-    assert!(a.title.contains("スタディリンク") && a.title.contains("けやき台"));
-    assert!(a.body.contains("けやき台校"), "自塾の月謝と比べる: {}", a.body);
+    assert!(a.title.contains("スタディリンク") && a.title.contains("吉祥寺"));
+    assert!(a.body.contains("吉祥寺校"), "自塾の月謝と比べる: {}", a.body);
     assert!(a.body.contains("シェア"));
     assert_eq!(a.topic, Topic::Marketing);
 }

@@ -1,50 +1,339 @@
-//! タウンマップ：街の地図の上でエリアを選び、教室を開く。
+//! タウンマップ：首都圏の実在の街を、緯度・経度どおりの地図の上で攻略していく。
 //!
-//! 地図の座標は画面側の都合なので、エリアの名前からここで決める（シミュレーションには持たせない）。
+//! 海岸線・川・都県境・鉄道はおおまかな実際の形を緯度経度で持ち、画面の大きさに合わせて投影する。
+//! 地図の背景画像（`images::MAP_FILE`）は `MAP_BOUNDS` の範囲を描いたもの。読み込めるまでは図形で描く。
 
 use juku_render::{Color, FontWeight, Rect};
 use juku_sim::World;
-use juku_ui::{Align, ButtonStyle, Ui};
+use juku_ui::{Align, ButtonStyle, ImageState, Ui};
 
 use crate::fmt::format_yen;
+use crate::images;
 use crate::screens::hq::HqAction;
 
-/// エリアの地図上の位置（0..1）。北が上、海が南東。
-fn position(name: &str, index: usize, count: usize) -> (f32, f32) {
-    match name {
-        // 北部
-        "北野台" => (0.16, 0.14),
-        "青葉ヶ丘" => (0.43, 0.11),
-        "みなと北" => (0.70, 0.17),
-        // 市内
-        "けやき台" => (0.30, 0.46),
-        "桜ヶ丘" => (0.57, 0.40),
-        "緑町" => (0.13, 0.66),
-        "港南" => (0.40, 0.73),
-        "東雲" => (0.64, 0.80),
-        // 都心
-        "学園都市" => (0.87, 0.36),
-        "中央駅前" => (0.84, 0.60),
-        // 知らないエリアは円周上に並べる
-        _ => {
-            let a = index as f32 / count.max(1) as f32 * std::f32::consts::TAU;
-            (0.5 + 0.38 * a.sin(), 0.5 - 0.38 * a.cos())
+/// 地図に映す範囲の中心（経度・緯度）と、幅・高さ（km）。
+const CENTER: (f64, f64) = (139.725, 35.685);
+const SPAN_KM: (f64, f64) = (58.0, 55.0);
+/// 地図の背景画像が描いている範囲（西端・東端の経度, 南端・北端の緯度）。
+const MAP_BOUNDS: ((f64, f64), (f64, f64)) = ((139.3672, 140.0828), (35.43, 35.94));
+/// 経度・緯度 1 度あたりの km（北緯 35.7 度）。
+const KM_PER_LON: f64 = 90.4;
+const KM_PER_LAT: f64 = 111.0;
+
+/// 東京湾（経度, 緯度）。地図の外まで伸ばしてある。
+const TOKYO_BAY: &[(f64, f64)] = &[
+    (139.66, 35.15),
+    (139.67, 35.28),
+    (139.64, 35.34),
+    (139.63, 35.40),
+    (139.67, 35.42),
+    (139.64, 35.465),
+    (139.68, 35.49),
+    (139.74, 35.52),
+    (139.80, 35.545),
+    (139.79, 35.565),
+    (139.75, 35.59),
+    (139.76, 35.62),
+    (139.78, 35.635),
+    (139.83, 35.63),
+    (139.86, 35.635),
+    (139.88, 35.625),
+    (139.91, 35.64),
+    (139.95, 35.66),
+    (139.98, 35.685),
+    (140.02, 35.665),
+    (140.05, 35.64),
+    (140.09, 35.605),
+    (140.12, 35.57),
+    (140.10, 35.52),
+    (140.00, 35.45),
+    (139.92, 35.38),
+    (139.82, 35.30),
+    (139.80, 35.15),
+];
+
+/// 川（名前, 河口から上流へ）。
+const RIVERS: &[(&str, &[(f64, f64)])] = &[
+    (
+        "多摩川",
+        &[
+            (139.77, 35.54),
+            (139.70, 35.565),
+            (139.67, 35.58),
+            (139.63, 35.607),
+            (139.57, 35.625),
+            (139.53, 35.645),
+            (139.47, 35.657),
+            (139.42, 35.68),
+            (139.36, 35.70),
+            (139.30, 35.73),
+        ],
+    ),
+    (
+        "荒川",
+        &[
+            (139.84, 35.645),
+            (139.84, 35.70),
+            (139.81, 35.75),
+            (139.73, 35.785),
+            (139.65, 35.825),
+            (139.58, 35.88),
+            (139.53, 35.94),
+            (139.48, 36.00),
+        ],
+    ),
+    (
+        "江戸川",
+        &[
+            (139.90, 35.64),
+            (139.89, 35.70),
+            (139.88, 35.76),
+            (139.88, 35.80),
+            (139.90, 35.86),
+            (139.88, 35.94),
+            (139.83, 36.02),
+        ],
+    ),
+];
+
+/// 都県境（多摩川・江戸川と重なるところは川で代える）。
+const BORDERS: &[&[(f64, f64)]] = &[
+    // 東京・埼玉
+    &[
+        (139.20, 35.86),
+        (139.35, 35.80),
+        (139.45, 35.775),
+        (139.55, 35.78),
+        (139.63, 35.795),
+        (139.72, 35.80),
+        (139.80, 35.79),
+        (139.88, 35.78),
+    ],
+    // 東京（町田）・神奈川
+    &[
+        (139.53, 35.64),
+        (139.50, 35.61),
+        (139.48, 35.575),
+        (139.45, 35.555),
+        (139.41, 35.55),
+        (139.34, 35.60),
+        (139.26, 35.62),
+    ],
+];
+
+/// 都県・海の名前（経度, 緯度, 名前）。
+const PLACE_LABELS: &[(f64, f64, &str)] = &[
+    (139.52, 35.74, "東京都"),
+    (139.50, 35.90, "埼玉県"),
+    (139.50, 35.50, "神奈川県"),
+    (140.00, 35.80, "千葉県"),
+    (139.90, 35.52, "東京湾"),
+];
+
+/// 鉄道（名前, 色, 駅の経度緯度）。
+const RAILWAYS: &[(&str, u32, &[(f64, f64)])] = &[
+    (
+        "山手線",
+        0x9ACD32,
+        &[
+            (139.767, 35.681),
+            (139.777, 35.714),
+            (139.761, 35.738),
+            (139.711, 35.730),
+            (139.700, 35.690),
+            (139.702, 35.658),
+            (139.739, 35.628),
+            (139.757, 35.655),
+            (139.767, 35.681),
+        ],
+    ),
+    (
+        "中央線",
+        0xF15A22,
+        &[
+            (139.767, 35.681),
+            (139.700, 35.690),
+            (139.620, 35.704),
+            (139.580, 35.703),
+            (139.480, 35.700),
+            (139.414, 35.698),
+            (139.339, 35.656),
+        ],
+    ),
+    (
+        "京王線",
+        0xDD0077,
+        &[
+            (139.700, 35.690),
+            (139.650, 35.668),
+            (139.541, 35.652),
+            (139.480, 35.672),
+            (139.447, 35.650),
+            (139.343, 35.657),
+        ],
+    ),
+    (
+        "小田急線",
+        0x0D6AB8,
+        &[
+            (139.700, 35.690),
+            (139.668, 35.661),
+            (139.599, 35.640),
+            (139.570, 35.620),
+            (139.508, 35.604),
+            (139.446, 35.542),
+            (139.438, 35.532),
+        ],
+    ),
+    (
+        "東急田園都市線",
+        0x20A288,
+        &[
+            (139.702, 35.658),
+            (139.670, 35.644),
+            (139.627, 35.611),
+            (139.611, 35.600),
+            (139.558, 35.578),
+            (139.495, 35.531),
+        ],
+    ),
+    (
+        "東急東横線",
+        0xDA0442,
+        &[(139.702, 35.658), (139.669, 35.607), (139.660, 35.576), (139.631, 35.509), (139.622, 35.466)],
+    ),
+    (
+        "京浜東北線",
+        0x00B2E5,
+        &[
+            (139.622, 35.466),
+            (139.697, 35.531),
+            (139.739, 35.628),
+            (139.767, 35.681),
+            (139.777, 35.714),
+            (139.721, 35.778),
+            (139.657, 35.859),
+            (139.624, 35.906),
+        ],
+    ),
+    ("丸ノ内線", 0xF62E36, &[(139.767, 35.681), (139.752, 35.701), (139.737, 35.717), (139.711, 35.730)]),
+    ("有楽町線", 0xC1A470, &[(139.711, 35.730), (139.763, 35.675), (139.796, 35.655), (139.827, 35.646)]),
+    ("西武池袋線", 0xF5A300, &[(139.711, 35.730), (139.654, 35.738), (139.584, 35.751), (139.473, 35.786)]),
+    (
+        "総武線",
+        0xFFD400,
+        &[(139.767, 35.681), (139.814, 35.697), (139.907, 35.728), (139.985, 35.702), (140.113, 35.613)],
+    ),
+    ("常磐線", 0x00B261, &[(139.777, 35.714), (139.805, 35.749), (139.900, 35.784), (139.971, 35.862)]),
+    (
+        "南武線",
+        0xE8B800,
+        &[(139.697, 35.531), (139.660, 35.576), (139.570, 35.620), (139.477, 35.666), (139.414, 35.698)],
+    ),
+];
+
+/// 遊べない主要駅（目印）。
+const LANDMARKS: &[(f64, f64, &str)] = &[
+    (139.700, 35.690, "新宿"),
+    (139.711, 35.730, "池袋"),
+    (139.767, 35.681, "東京"),
+    (139.777, 35.714, "上野"),
+    (139.739, 35.628, "品川"),
+    (139.697, 35.531, "川崎"),
+    (140.113, 35.613, "千葉"),
+    (139.414, 35.698, "立川"),
+    (139.446, 35.542, "町田"),
+];
+
+/// 地図の投影：経度緯度 → 画面座標。
+#[derive(Clone, Copy)]
+struct Projection {
+    m: Rect,
+    px_per_km: f64,
+}
+
+impl Projection {
+    fn new(m: Rect) -> Self {
+        let px_per_km = (m.w as f64 / SPAN_KM.0).min(m.h as f64 / SPAN_KM.1);
+        Self { m, px_per_km }
+    }
+
+    fn pt(&self, (lon, lat): (f64, f64)) -> (f32, f32) {
+        let (cx, cy) = self.m.center();
+        let x = (lon - CENTER.0) * KM_PER_LON * self.px_per_km;
+        let y = (CENTER.1 - lat) * KM_PER_LAT * self.px_per_km;
+        (cx + x as f32, cy + y as f32)
+    }
+
+    fn km(&self, km: f64) -> f32 {
+        (km * self.px_per_km) as f32
+    }
+}
+
+/// 多角形を走査線で塗る（描画ライブラリに多角形が無いので、細い横長の矩形を並べる）。
+fn fill_polygon(ui: &mut Ui, proj: &Projection, poly: &[(f64, f64)], color: Color) {
+    let m = proj.m;
+    let pts: Vec<(f32, f32)> = poly.iter().map(|p| proj.pt(*p)).collect();
+    let step = 2.0;
+    let mut y = m.y;
+    while y < m.bottom() {
+        let sy = y + step * 0.5;
+        let mut xs: Vec<f32> = Vec::new();
+        for i in 0..pts.len() {
+            let (a, b) = (pts[i], pts[(i + 1) % pts.len()]);
+            if (a.1 <= sy && b.1 > sy) || (b.1 <= sy && a.1 > sy) {
+                xs.push(a.0 + (sy - a.1) / (b.1 - a.1) * (b.0 - a.0));
+            }
+        }
+        xs.sort_by(f32::total_cmp);
+        for pair in xs.chunks(2) {
+            if let [x0, x1] = pair {
+                let (x0, x1) = (x0.max(m.x), x1.min(m.right()));
+                if x1 > x0 {
+                    ui.dl.rect(Rect::new(x0, y, x1 - x0, step + 0.5), color, 0.0);
+                }
+            }
+        }
+        y += step;
+    }
+}
+
+fn polyline(ui: &mut Ui, proj: &Projection, pts: &[(f64, f64)], width: f32, color: Color) {
+    for w in pts.windows(2) {
+        let (p, q) = (proj.pt(w[0]), proj.pt(w[1]));
+        ui.dl.line(p.0, p.1, q.0, q.1, width, color);
+    }
+}
+
+fn dashed(ui: &mut Ui, proj: &Projection, pts: &[(f64, f64)], width: f32, color: Color) {
+    for w in pts.windows(2) {
+        let (p, q) = (proj.pt(w[0]), proj.pt(w[1]));
+        let len = ((q.0 - p.0).powi(2) + (q.1 - p.1).powi(2)).sqrt();
+        let n = (len / 8.0).max(1.0) as usize;
+        for k in (0..n).step_by(2) {
+            let (t0, t1) = (k as f32 / n as f32, ((k + 1) as f32 / n as f32).min(1.0));
+            ui.dl.line(
+                p.0 + (q.0 - p.0) * t0,
+                p.1 + (q.1 - p.1) * t0,
+                p.0 + (q.0 - p.0) * t1,
+                p.1 + (q.1 - p.1) * t1,
+                width,
+                color,
+            );
         }
     }
 }
 
-/// 線路（駅どうしを結ぶ）。
-const RAILS: &[(&str, &str)] = &[
-    ("北野台", "けやき台"),
-    ("けやき台", "桜ヶ丘"),
-    ("桜ヶ丘", "中央駅前"),
-    ("みなと北", "桜ヶ丘"),
-    ("青葉ヶ丘", "みなと北"),
-    ("緑町", "港南"),
-    ("港南", "東雲"),
-    ("東雲", "中央駅前"),
-    ("学園都市", "中央駅前"),
-];
+/// 街の地図上の位置（経度, 緯度）。古い街の定義で緯度経度が無いときは、範囲の中に円く並べる。
+fn town_lonlat(world: &World, a: usize) -> (f64, f64) {
+    let area = &world.areas[a];
+    if area.lat != 0.0 {
+        return (area.lon, area.lat);
+    }
+    let n = world.areas.len().max(1);
+    let ang = a as f64 / n as f64 * std::f64::consts::TAU;
+    (CENTER.0 + 0.25 * ang.sin(), CENTER.1 + 0.2 * ang.cos())
+}
 
 /// エリアの状態。
 #[derive(Clone, Copy, PartialEq)]
@@ -67,107 +356,129 @@ fn state(world: &World, a: usize) -> State {
     }
 }
 
-/// 地図と、選んだエリアの詳細を描く。
+/// 攻略状況、地図、選んだ街の詳細を描く。
 pub fn draw(ui: &mut Ui, world: &World, selected: &mut Option<usize>, action: &mut Option<HqAction>) {
     let t = ui.theme;
     let n = world.areas.len();
     if n == 0 {
         return;
     }
-    // 最初は開校できるエリアのうち市場の大きいところ、なければ創業の地を選んでおく
+    // 最初は開校できる街のうち市場の大きいところ、なければ創業の地を選んでおく
     let sel = selected
         .filter(|a| *a < n)
         .or_else(|| world.open_areas().into_iter().max_by(|a, b| world.areas[*a].pool.total_cmp(&world.areas[*b].pool)))
         .unwrap_or(world.classrooms[0].area);
     *selected = Some(sel);
 
-    ui.heading("タウンマップ");
-    ui.caption("エリアをタップすると、市場の大きさ・家賃・競合が見られます。開校できるエリアは白い輪、自塾の教室はオレンジです。");
+    ui.heading("首都圏攻略マップ");
+    progress(ui, world);
+    ui.caption("街をタップすると、市場の大きさ・家賃・競合が見られます。地域で在籍数 1 位になり、シェア 35% と在籍 30 人を超えるとその街を「制覇」です。");
 
     let mut clicked = None;
-    ui.card(12.0, |ui| {
-        let width = ui.alloc(0.0).w;
-        let m = ui.alloc(width.clamp(280.0, 460.0));
-        let pt = |(x, y): (f32, f32)| (m.x + x * m.w, m.y + y * m.h);
+    ui.card(10.0, |ui| {
+        let width = ui.width();
+        let m = ui.alloc((width * 0.95).clamp(320.0, 680.0));
+        let proj = Projection::new(m);
 
-        // ---- 地面・海・川 ----
-        ui.dl.rect_gradient(m, Color::hex(0x2E4A3B), Color::hex(0x243B30), 10.0);
-        // 南東の海
-        let sea = Color::hex(0x1D3C55);
-        ui.dl.rect(Rect::new(m.x, m.y + m.h * 0.90, m.w, m.h * 0.10), sea, 10.0);
-        ui.dl.rect(Rect::new(m.x + m.w * 0.52, m.y + m.h * 0.86, m.w * 0.48, m.h * 0.14), sea, 10.0);
-        ui.dl.rect(Rect::new(m.x + m.w * 0.76, m.y + m.h * 0.70, m.w * 0.24, m.h * 0.30), sea, 10.0);
-        // 北部と市内を分ける川
-        let river = Color::hex(0x3B6E8C);
-        let mut prev = pt((0.0, 0.30));
-        for k in 1..=16 {
-            let x = k as f32 / 16.0;
-            let y = 0.28 + 0.035 * (x * 9.0).sin();
-            let p = pt((x, y));
-            ui.dl.line(prev.0, prev.1, p.0, p.1, 6.0, river);
-            prev = p;
-        }
-        // 都心の街区（格子）
-        let grid = Color::WHITE.with_alpha(0.05);
-        for k in 0..6 {
-            let x = m.x + m.w * (0.74 + k as f32 * 0.045);
-            ui.dl.line(x, m.y + m.h * 0.24, x, m.y + m.h * 0.70, 1.0, grid);
-            let y = m.y + m.h * (0.26 + k as f32 * 0.08);
-            ui.dl.line(m.x + m.w * 0.72, y, m.right() - 6.0, y, 1.0, grid);
-        }
-        // 地方の名前
-        let region_label = |ui: &mut Ui, x: f32, y: f32, s: &str| {
-            ui.text_in(
-                Rect::new(m.x + m.w * x - 40.0, m.y + m.h * y, 80.0, 18.0),
-                s,
-                t.font_small,
-                FontWeight::Bold,
-                Color::WHITE.with_alpha(0.28),
-                Align::Center,
-            );
-        };
-        region_label(ui, 0.10, 0.015, "北部");
-        region_label(ui, 0.10, 0.33, "市内");
-        region_label(ui, 0.86, 0.17, "都心");
-        region_label(ui, 0.90, 0.92, "海");
-
-        // ---- 線路 ----
-        let pos: Vec<(f32, f32)> = (0..n).map(|a| pt(position(&world.areas[a].name, a, n))).collect();
-        let find = |name: &str| world.areas.iter().position(|a| a.name == name);
-        for (a, b) in RAILS {
-            if let (Some(a), Some(b)) = (find(a), find(b)) {
-                let (p, q) = (pos[a], pos[b]);
-                ui.dl.line(p.0, p.1, q.0, q.1, 4.0, Color::hex(0x101A15).with_alpha(0.7));
-                ui.dl.line(p.0, p.1, q.0, q.1, 1.5, Color::hex(0xC9C2A8).with_alpha(0.55));
+        // ---- 陸・海・川・都県境 ----
+        ui.dl.rect_gradient(m, Color::hex(0x31503F), Color::hex(0x263F32), 10.0);
+        ui.dl.push_clip(m);
+        if let ImageState::Ready(info) = ui.image(images::MAP_FILE) {
+            // 背景画像を緯度経度の範囲どおりに置く（はみ出す分は地図の枠で切る）
+            let ((lon0, lon1), (lat0, lat1)) = MAP_BOUNDS;
+            let (x0, y0) = proj.pt((lon0, lat1));
+            let (x1, y1) = proj.pt((lon1, lat0));
+            ui.dl.image(Rect::new(x0, y0, x1 - x0, y1 - y0), info.id, [0.0, 0.0, 1.0, 1.0], 0.0, 1.0);
+        } else {
+            // 23 区のあたりは街が詰まっている
+            let (kx, ky) = proj.pt((139.72, 35.69));
+            ui.dl.circle(kx, ky, proj.km(13.0), Color::WHITE.with_alpha(0.035));
+            ui.dl.circle(kx, ky, proj.km(8.0), Color::WHITE.with_alpha(0.03));
+            fill_polygon(ui, &proj, TOKYO_BAY, Color::hex(0x1D3C55));
+            polyline(ui, &proj, TOKYO_BAY, 1.5, Color::hex(0x5B88A8).with_alpha(0.6));
+            for (_, pts) in RIVERS {
+                polyline(ui, &proj, pts, (proj.km(0.35)).clamp(2.0, 4.0), Color::hex(0x3B6E8C));
+            }
+            for pts in BORDERS {
+                dashed(ui, &proj, pts, 1.2, Color::WHITE.with_alpha(0.22));
             }
         }
+        for (lon, lat, name) in PLACE_LABELS {
+            let (x, y) = proj.pt((*lon, *lat));
+            ui.text_in(
+                Rect::new(x - 50.0, y - 9.0, 100.0, 18.0),
+                name,
+                t.font_small,
+                FontWeight::Bold,
+                Color::WHITE.with_alpha(0.22),
+                Align::Center,
+            );
+        }
+        for (name, pts) in RIVERS {
+            let (x, y) = proj.pt(pts[pts.len() / 2]);
+            ui.text_in(
+                Rect::new(x + 4.0, y - 14.0, 60.0, 14.0),
+                name,
+                t.font_small - 3.0,
+                FontWeight::Regular,
+                Color::hex(0x7FB2D0).with_alpha(0.7),
+                Align::Left,
+            );
+        }
 
-        // ---- エリア ----
+        // ---- 鉄道 ----
+        for (_, color, pts) in RAILWAYS {
+            polyline(ui, &proj, pts, 3.5, Color::hex(0x101A15).with_alpha(0.6));
+            polyline(ui, &proj, pts, 1.6, Color::hex(*color).with_alpha(0.55));
+        }
+        for (lon, lat, name) in LANDMARKS {
+            let (x, y) = proj.pt((*lon, *lat));
+            ui.dl.rect(Rect::new(x - 3.0, y - 3.0, 6.0, 6.0), Color::hex(0xDDD8C4).with_alpha(0.7), 1.0);
+            ui.text_in(
+                Rect::new(x + 5.0, y - 7.0, 40.0, 14.0),
+                name,
+                t.font_small - 3.0,
+                FontWeight::Regular,
+                Color::WHITE.with_alpha(0.45),
+                Align::Left,
+            );
+        }
+
+        // ---- 街 ----
         let time = ui.input.time as f32;
+        let pos: Vec<(f32, f32)> = (0..n).map(|a| proj.pt(town_lonlat(world, a))).collect();
         for a in 0..n {
             let area = &world.areas[a];
             let (cx, cy) = pos[a];
             let st = state(world, a);
-            let r = 11.0 + (area.pool as f32 - 0.6).clamp(0.0, 1.4) * 8.0;
+            let r = 8.0 + (area.pool as f32 - 0.6).clamp(0.0, 1.4) * 5.0;
             let is_sel = a == sel;
 
             if is_sel {
                 let pulse = 0.5 + 0.5 * (time * 3.0).sin();
-                ui.dl.circle(cx, cy, r + 9.0 + pulse * 2.0, t.star.with_alpha(0.25));
+                ui.dl.circle(cx, cy, r + 8.0 + pulse * 2.0, t.star.with_alpha(0.25));
                 ui.mem.request_repaint();
             }
             match st {
                 State::Ours(_) => {
+                    let conquered = world.area_conquered(a);
+                    if conquered {
+                        // 制覇した街は金の縁と旗
+                        ui.dl.circle(cx, cy, r + 4.0, t.star);
+                    }
                     ui.dl.circle(cx, cy, r + 2.0, Color::hex(0x101A15));
                     ui.dl.circle(cx, cy, r, t.accent);
                     ui.text_in(
                         Rect::new(cx - r, cy - r, r * 2.0, r * 2.0),
                         "塾",
-                        (r * 1.1).min(18.0),
+                        (r * 1.1).min(16.0),
                         FontWeight::Bold,
                         Color::hex(0x1A1208),
                         Align::Center,
                     );
+                    if conquered {
+                        flag(ui, cx + r * 0.6, cy - r - 2.0, t.star);
+                    }
                 }
                 State::Open => {
                     ui.dl.circle(cx, cy, r + 2.0, Color::WHITE.with_alpha(0.9));
@@ -175,7 +486,7 @@ pub fn draw(ui: &mut Ui, world: &World, selected: &mut Option<usize>, action: &m
                     ui.text_in(
                         Rect::new(cx - r, cy - r, r * 2.0, r * 2.0),
                         "＋",
-                        (r * 1.0).min(16.0),
+                        (r * 1.0).min(14.0),
                         FontWeight::Bold,
                         Color::WHITE.with_alpha(0.9),
                         Align::Center,
@@ -190,32 +501,65 @@ pub fn draw(ui: &mut Ui, world: &World, selected: &mut Option<usize>, action: &m
             // 競合の教室（小さな点。売りに出ている塾は赤い縁）
             let rivals = world.competitors.iter().filter(|c| !c.acquired && c.branch(a).is_some());
             for (k, comp) in rivals.enumerate() {
-                let ang = -0.9 + k as f32 * 0.55;
-                let (dx, dy) = ((r + 7.0) * ang.cos(), (r + 7.0) * ang.sin());
+                let ang = -0.9 + k as f32 * 0.5;
+                let (dx, dy) = ((r + 6.0) * ang.cos(), (r + 6.0) * ang.sin());
                 let c = Color::rgb(comp.color[0], comp.color[1], comp.color[2]);
                 if comp.for_sale {
-                    ui.dl.circle(cx + dx, cy + dy, 6.0, t.negative);
+                    ui.dl.circle(cx + dx, cy + dy, 5.0, t.negative);
                 }
-                ui.dl.circle(cx + dx, cy + dy, 4.5, c);
+                ui.dl.circle(cx + dx, cy + dy, 3.5, c);
             }
 
             // 名前
-            let name_c = if st == State::Locked { Color::WHITE.with_alpha(0.45) } else { Color::WHITE };
-            let label_r = Rect::new(cx - 50.0, cy + r + 3.0, 100.0, 16.0);
-            let tw = ui.measure(&area.name, 11.0, FontWeight::Bold) + 10.0;
-            ui.dl.rect(Rect::new(cx - tw * 0.5, label_r.y, tw, 16.0), Color::BLACK.with_alpha(0.45), 8.0);
-            ui.text_in(label_r, &area.name, 11.0, FontWeight::Bold, name_c, Align::Center);
+            let name_c = if st == State::Locked { Color::WHITE.with_alpha(0.5) } else { Color::WHITE };
+            let tw = ui.measure(&area.name, 10.5, FontWeight::Bold) + 10.0;
+            let label_r = match label_side(&area.name) {
+                LabelSide::Right => Rect::new(cx + r + 4.0, cy - 7.5, tw, 15.0),
+                LabelSide::Above => Rect::new(cx - tw * 0.5, cy - r - 18.0, tw, 15.0),
+                LabelSide::Below => Rect::new(cx - tw * 0.5, cy + r + 3.0, tw, 15.0),
+            };
+            ui.dl.rect(label_r, Color::BLACK.with_alpha(0.5), 7.5);
+            ui.text_in(label_r, &area.name, 10.5, FontWeight::Bold, name_c, Align::Center);
 
             // タップの当たり判定（名前まで含める）
-            let hit = Rect::new(cx - r - 10.0, cy - r - 10.0, (r + 10.0) * 2.0, (r + 10.0) * 2.0 + 12.0);
+            let hit = Rect::new(cx - r - 8.0, cy - r - 8.0, (r + 8.0) * 2.0, (r + 8.0) * 2.0 + 10.0);
             if ui.clicked(hit) {
                 clicked = Some(a);
             }
         }
 
+        // 縮尺（10 km）と方位
+        let bar = proj.km(10.0);
+        let (bx, by) = (m.x + 12.0, m.bottom() - 16.0);
+        ui.dl.line(bx, by, bx + bar, by, 2.0, Color::WHITE.with_alpha(0.6));
+        ui.dl.line(bx, by - 4.0, bx, by + 1.0, 2.0, Color::WHITE.with_alpha(0.6));
+        ui.dl.line(bx + bar, by - 4.0, bx + bar, by + 1.0, 2.0, Color::WHITE.with_alpha(0.6));
+        ui.text_in(
+            Rect::new(bx, by - 18.0, bar, 14.0),
+            "10 km",
+            t.font_small - 3.0,
+            FontWeight::Regular,
+            Color::WHITE.with_alpha(0.6),
+            Align::Center,
+        );
+        let (nx, ny) = (m.right() - 22.0, m.y + 26.0);
+        ui.dl.line(nx, ny + 8.0, nx, ny - 8.0, 2.0, Color::WHITE.with_alpha(0.6));
+        ui.dl.line(nx - 5.0, ny - 3.0, nx, ny - 9.0, 2.0, Color::WHITE.with_alpha(0.6));
+        ui.dl.line(nx + 5.0, ny - 3.0, nx, ny - 9.0, 2.0, Color::WHITE.with_alpha(0.6));
+        ui.text_in(
+            Rect::new(nx - 10.0, ny + 8.0, 20.0, 14.0),
+            "N",
+            t.font_small - 3.0,
+            FontWeight::Bold,
+            Color::WHITE.with_alpha(0.6),
+            Align::Center,
+        );
+        ui.dl.pop_clip();
+
         // 凡例
         let r = ui.alloc(20.0);
-        let items: [(Color, &str); 4] = [
+        let items: [(Color, &str); 5] = [
+            (t.star, "制覇"),
             (t.accent, "自塾"),
             (Color::WHITE, "開校できる"),
             (Color::hex(0x5A6560), "条件あり"),
@@ -242,6 +586,59 @@ pub fn draw(ui: &mut Ui, world: &World, selected: &mut Option<usize>, action: &m
     detail(ui, world, sel, action);
 }
 
+/// 攻略の進み具合（全体と地方ごと）。
+fn progress(ui: &mut Ui, world: &World) {
+    let t = ui.theme;
+    let (won, total) = world.conquest_progress();
+    ui.card(12.0, |ui| {
+        ui.set_spacing(6.0);
+        let r = ui.alloc(24.0);
+        ui.text_in(r, "首都圏の制覇", t.font_body, FontWeight::Bold, t.text, Align::Left);
+        ui.text_in(r, &format!("{won} / {total} 街"), t.font_heading, FontWeight::Bold, t.star, Align::Right);
+        let bar = ui.alloc(8.0);
+        ui.meter_at(bar, won as f32 / total.max(1) as f32, t.star);
+        let regions = world.region_progress();
+        let r = ui.alloc(22.0);
+        let mut x = r.x;
+        for (name, won, total) in regions {
+            let label = format!("{name} {won}/{total}");
+            let color = if won == total {
+                t.star
+            } else if won > 0 {
+                t.accent
+            } else {
+                t.text_dim
+            };
+            let w = ui.measure(&label, t.font_small - 1.0, FontWeight::Bold) + 16.0;
+            if x + w > r.right() {
+                break;
+            }
+            x += ui.badge_at(x, r.y + 2.0, &label, color) + 6.0;
+        }
+    });
+}
+
+enum LabelSide {
+    Below,
+    Right,
+    Above,
+}
+
+/// 街が詰まっているところは、名前の位置をずらして重ならないようにする。
+fn label_side(name: &str) -> LabelSide {
+    match name {
+        "成城学園前" => LabelSide::Above,
+        "二子玉川" => LabelSide::Right,
+        _ => LabelSide::Below,
+    }
+}
+
+/// 制覇の旗。
+fn flag(ui: &mut Ui, x: f32, y: f32, c: Color) {
+    ui.dl.line(x, y, x, y - 12.0, 1.5, Color::WHITE.with_alpha(0.9));
+    ui.dl.rect(Rect::new(x, y - 12.0, 8.0, 5.5), c, 1.0);
+}
+
 /// 錠前の形（鍵のかかったエリア）。
 fn padlock(ui: &mut Ui, cx: f32, cy: f32, s: f32, c: Color) {
     ui.dl.arc(cx, cy - s * 0.25, s * 0.62, s * 0.38, -std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2, c);
@@ -257,8 +654,12 @@ fn detail(ui: &mut Ui, world: &World, a: usize, action: &mut Option<HqAction>) {
     let total: u32 = shares.iter().map(|s| s.1).sum();
     ui.card(16.0, |ui| {
         ui.set_spacing(6.0);
+        // 街の風景（未生成）
+        let w = ui.width();
+        let img = ui.alloc((w * 9.0 / 16.0).min(360.0));
+        images::picture(ui, img, &format!("{}の街並み", area.name), &images::town_file(&area.name), t.series[4]);
         let r = ui.alloc(26.0);
-        let title = format!("{}エリア", area.name);
+        let title = area.name.clone();
         ui.text_in(r, &title, t.font_heading, FontWeight::Bold, t.text, Align::Left);
         let w = ui.measure(&title, t.font_heading, FontWeight::Bold);
         let (badge, color) = match st {
@@ -267,8 +668,22 @@ fn detail(ui: &mut Ui, world: &World, a: usize, action: &mut Option<HqAction>) {
             State::Locked => ("条件あり", t.text_dim),
         };
         let bw = ui.badge_at(r.x + w + 8.0, r.y + 2.0, badge, color);
-        ui.badge_at(r.x + w + 8.0 + bw + 6.0, r.y + 2.0, &area.region, t.series[4]);
+        let rw = ui.badge_at(r.x + w + 8.0 + bw + 6.0, r.y + 2.0, &area.region, t.series[4]);
+        if world.area_conquered(a) {
+            ui.badge_at(r.x + w + 8.0 + bw + 6.0 + rw + 6.0, r.y + 2.0, "制覇", t.star);
+        }
+        if !area.kana.is_empty() {
+            ui.label_ex(&area.kana, t.font_small - 1.0, FontWeight::Regular, t.text_dim, Align::Left);
+        }
         ui.label_ex(&area.description, t.font_small, FontWeight::Regular, t.text_dim, Align::Left);
+        if !area.lines.is_empty() {
+            ui.kv_row("路線", &area.lines, None);
+        }
+        ui.kv_row("所在地", &area.address, None);
+        if let Some((share, rank)) = world.area_standing(a) {
+            let c = if world.area_conquered(a) { t.star } else { t.text };
+            ui.kv_row("自塾の順位", &format!("{rank} 位（シェア {:.0}%）", share * 100.0), Some(c));
+        }
 
         let growth = if area.pool_growth > 0.0 {
             format!("（毎年 +{:.0}%）", area.pool_growth * 100.0)
@@ -321,6 +736,9 @@ fn detail(ui: &mut Ui, world: &World, a: usize, action: &mut Option<HqAction>) {
         match st {
             State::Ours(ci) => {
                 let c = &world.classrooms[ci];
+                let w = ui.width();
+                let img = ui.alloc((w * 9.0 / 16.0).min(360.0));
+                images::picture(ui, img, &format!("{}の校舎", c.name), &images::school_file(&area.name), t.accent);
                 ui.label_ex(
                     &format!("{}：在籍 {} 人・講師 {} 人", c.name, c.students.len(), c.teachers.len()),
                     t.font_small,

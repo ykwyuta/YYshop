@@ -12,7 +12,7 @@ use crate::model::*;
 use crate::report::*;
 use crate::rng::Rng;
 
-pub const SAVE_VERSION: u32 = 4;
+pub const SAVE_VERSION: u32 = 5;
 /// 2 教室目からかかる本部の運営費（教室ごと・週）。
 const HQ_OVERHEAD_PER_EXTRA_CLASSROOM: Yen = 60_000;
 /// 本部の管理部門の費用（教室の売上に対する割合）。
@@ -72,9 +72,12 @@ pub struct World {
     /// 株式上場
     #[serde(default)]
     pub listing: crate::listing::Listing,
-    /// 出店できるエリアの数（増えたらお知らせを出す）
+    /// 出店できるようになったエリア（増えたらお知らせを出す）
     #[serde(default)]
-    pub unlocked_areas: usize,
+    pub unlocked_areas: Vec<bool>,
+    /// 制覇した街（エリアで在籍数が首位）
+    #[serde(default)]
+    pub conquered: Vec<bool>,
     pub(crate) next_id: u32,
     weeks_since_event: u32,
 }
@@ -166,7 +169,8 @@ impl World {
             negative_weeks: 0,
             bankrupt: false,
             listing: Default::default(),
-            unlocked_areas: data::AREAS.iter().filter(|a| a.unlock == crate::market::AreaUnlock::Start).count(),
+            unlocked_areas: data::AREAS.iter().map(|a| a.unlock == crate::market::AreaUnlock::Start).collect(),
+            conquered: vec![false; data::AREAS.len()],
             next_id,
             weeks_since_event: 0,
         };
@@ -227,6 +231,78 @@ impl World {
     /// まだ出店できないエリア。
     pub fn locked_areas(&self) -> Vec<usize> {
         (0..self.areas.len()).filter(|a| !self.area_unlocked(*a)).collect()
+    }
+
+    /// 街を「制覇」したと見なす最低の在籍数。
+    pub const CONQUEST_MIN_STUDENTS: u32 = 30;
+    /// 街を「制覇」したと見なす最低のシェア。
+    pub const CONQUEST_MIN_SHARE: f64 = 0.35;
+
+    /// 街での自塾のシェア（0..1）と順位（1 が首位）。自塾がなければ None。
+    pub fn area_standing(&self, area: usize) -> Option<(f64, usize)> {
+        let shares = self.area_shares(area);
+        let ours: u32 = shares.iter().filter(|s| s.3).map(|s| s.1).sum();
+        if !self.classrooms.iter().any(|c| c.area == area) {
+            return None;
+        }
+        let total: u32 = shares.iter().map(|s| s.1).sum();
+        let share = if total == 0 { 0.0 } else { ours as f64 / total as f64 };
+        let rank = 1 + shares.iter().filter(|s| !s.3 && s.1 > ours).count();
+        Some((share, rank))
+    }
+
+    /// 街を制覇しているか：在籍数が首位で、シェアと在籍数が基準を超えている。
+    pub fn area_conquered(&self, area: usize) -> bool {
+        let ours: u32 = self.classrooms.iter().filter(|c| c.area == area).map(|c| c.students.len() as u32).sum();
+        match self.area_standing(area) {
+            Some((share, 1)) => ours >= Self::CONQUEST_MIN_STUDENTS && share >= Self::CONQUEST_MIN_SHARE,
+            _ => false,
+        }
+    }
+
+    /// 制覇した街の数と、首都圏の街の総数。
+    pub fn conquest_progress(&self) -> (usize, usize) {
+        ((0..self.areas.len()).filter(|&a| self.area_conquered(a)).count(), self.areas.len())
+    }
+
+    /// 地方ごとの制覇状況：(地方名, 制覇した街, 街の数)。地図の並び順。
+    pub fn region_progress(&self) -> Vec<(String, usize, usize)> {
+        let mut v: Vec<(String, usize, usize)> = Vec::new();
+        for (a, area) in self.areas.iter().enumerate() {
+            let won = self.area_conquered(a) as usize;
+            match v.iter_mut().find(|r| r.0 == area.region) {
+                Some(r) => {
+                    r.1 += won;
+                    r.2 += 1;
+                }
+                None => v.push((area.region.clone(), won, 1)),
+            }
+        }
+        v
+    }
+
+    fn update_conquest(&mut self, news: &mut Vec<String>) {
+        self.conquered.resize(self.areas.len(), false);
+        for a in 0..self.areas.len() {
+            let now = self.area_conquered(a);
+            if now == self.conquered[a] {
+                continue;
+            }
+            self.conquered[a] = now;
+            let name = self.areas[a].name.clone();
+            if now {
+                let share = self.area_standing(a).map_or(0.0, |s| s.0);
+                news.insert(0, format!("{name}を制覇しました！（シェア {:.0}%で地域 1 位）", share * 100.0));
+                let region = self.areas[a].region.clone();
+                if let Some((_, won, total)) = self.region_progress().into_iter().find(|r| r.0 == region) {
+                    if won == total {
+                        news.insert(0, format!("{region}の街をすべて制覇しました！"));
+                    }
+                }
+            } else {
+                news.push(format!("{name}で地域 1 位の座を失いました"));
+            }
+        }
     }
 
     /// エリアの在籍シェア：(名前, 在籍数, 色, 自塾か)。
@@ -497,18 +573,20 @@ impl World {
         self.advance_listing(&mut hq, &mut flows, &mut company_news);
 
         // --- 新しいエリア ---
-        let unlocked = (0..self.areas.len()).filter(|a| self.area_unlocked(*a)).count();
-        if unlocked > self.unlocked_areas {
-            if self.unlocked_areas > 0 {
-                let names: Vec<String> = (0..self.areas.len())
-                    .filter(|a| self.area_unlocked(*a))
-                    .skip(self.unlocked_areas)
-                    .map(|a| self.areas[a].name.clone())
-                    .collect();
-                company_news.insert(0, format!("新しいエリア（{}）に出店できるようになりました", names.join("・")));
+        self.unlocked_areas.resize(self.areas.len(), false);
+        let names: Vec<String> = (0..self.areas.len())
+            .filter(|&a| self.area_unlocked(a) && !self.unlocked_areas[a])
+            .map(|a| self.areas[a].name.clone())
+            .collect();
+        if !names.is_empty() {
+            company_news.insert(0, format!("新しい街（{}）に出店できるようになりました", names.join("・")));
+            for a in 0..self.areas.len() {
+                self.unlocked_areas[a] = self.area_unlocked(a);
             }
-            self.unlocked_areas = unlocked;
         }
+
+        // --- 街の攻略 ---
+        self.update_conquest(&mut company_news);
 
         // --- 競合の動き（4 週ごと）---
         if calendar.week % 4 == 2 {

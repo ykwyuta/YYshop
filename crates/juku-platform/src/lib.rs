@@ -56,6 +56,20 @@ pub enum FontSource {
     Url { regular: String, bold: String },
 }
 
+/// 画面が使う画像（`ui.image(path)`）の取り出し方。
+pub enum ImageSource {
+    /// 画像を使わない
+    None,
+    /// ネイティブ：まず実行ファイルの隣・作業フォルダのファイルを探し、無ければ埋め込みから取る
+    Embedded(fn(&str) -> Option<&'static [u8]>),
+    /// Web：`{path}{suffix}` を fetch する（suffix はキャッシュ用の `?v=...`）
+    Url { suffix: String },
+}
+
+/// GPU に載せておく画像の最大の大きさ（長辺）と枚数。スマホのメモリを使いすぎないよう抑える。
+const IMAGE_MAX_PX: u32 = 1280;
+const IMAGE_KEEP: usize = 10;
+
 pub struct Config {
     pub title: String,
     /// 初期ウィンドウサイズ（論理 px、ネイティブのみ）
@@ -65,6 +79,8 @@ pub struct Config {
     pub canvas_id: String,
     /// ウィンドウ・タスクバーのアイコン（PNG、ネイティブのみ）
     pub icon_png: Option<&'static [u8]>,
+    /// 画像の取り出し方
+    pub images: ImageSource,
 }
 
 /// PNG をウィンドウアイコンにする。
@@ -84,6 +100,13 @@ fn load_icon(bytes: &[u8]) -> Option<winit::window::Icon> {
     winit::window::Icon::from_rgba(rgba, info.width, info.height).ok()
 }
 
+/// 画像ファイルを、実行ファイルの隣か作業フォルダから読む（画像を差し替えて試すとき用）。
+#[cfg(not(target_arch = "wasm32"))]
+fn read_image_file(path: &str) -> Option<Vec<u8>> {
+    let exe_dir = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join(path)));
+    exe_dir.into_iter().chain(std::iter::once(std::path::PathBuf::from(path))).find_map(|p| std::fs::read(p).ok())
+}
+
 struct Gfx {
     surface: wgpu::Surface<'static>,
     device: wgpu::Device,
@@ -96,6 +119,8 @@ struct Gfx {
 enum UserEvent {
     Ready(Box<Gfx>, Box<TextSystem>),
     Failed(String),
+    /// 画像を取得できた（または失敗した）
+    Image(String, Result<Vec<u8>, String>),
 }
 
 struct Handler<A: App> {
@@ -276,6 +301,68 @@ impl<A: App> Handler<A> {
         self.input.pointer_moved((pos.x / s) as f32, (pos.y / s) as f32);
     }
 
+    /// 頼まれた画像を取り出す。ネイティブはその場で、Web は fetch してから `UserEvent::Image` で受け取る。
+    fn request_images(&mut self, paths: Vec<String>) {
+        match &self.config.images {
+            ImageSource::None => {
+                for p in paths {
+                    self.mem.images.failed(&p);
+                }
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            ImageSource::Embedded(embedded) => {
+                let embedded = *embedded;
+                for p in paths {
+                    let bytes = read_image_file(&p).or_else(|| embedded(&p).map(<[u8]>::to_vec));
+                    self.image_arrived(p, bytes.ok_or_else(|| "画像がありません".to_string()));
+                }
+            }
+            #[cfg(target_arch = "wasm32")]
+            ImageSource::Embedded(embedded) => {
+                let embedded = *embedded;
+                for p in paths {
+                    let bytes = embedded(&p).map(<[u8]>::to_vec).ok_or_else(|| "画像がありません".to_string());
+                    self.image_arrived(p, bytes);
+                }
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            ImageSource::Url { .. } => {
+                for p in paths {
+                    let bytes = read_image_file(&p).ok_or_else(|| "画像がありません".to_string());
+                    self.image_arrived(p, bytes);
+                }
+            }
+            #[cfg(target_arch = "wasm32")]
+            ImageSource::Url { suffix } => {
+                for p in paths {
+                    let url = format!("{p}{suffix}");
+                    let proxy = self.proxy.clone();
+                    wasm_bindgen_futures::spawn_local(async move {
+                        let bytes = storage::fetch_bytes(&url, false).await;
+                        let _ = proxy.send_event(UserEvent::Image(p, bytes));
+                    });
+                }
+            }
+        }
+    }
+
+    /// 取り出した画像を展開して GPU に載せる。
+    fn image_arrived(&mut self, path: String, bytes: Result<Vec<u8>, String>) {
+        let Some(gfx) = &mut self.gfx else { return };
+        match bytes.and_then(|b| juku_render::decode_png(&b)) {
+            Ok(img) => {
+                let img = img.fit_within(IMAGE_MAX_PX, IMAGE_MAX_PX);
+                let info = self.mem.images.loaded(&path, img.width, img.height);
+                gfx.renderer.set_image(&gfx.device, &gfx.queue, info.id, img);
+            }
+            Err(e) => {
+                log::warn!("画像 {path} を読み込めません: {e}");
+                self.mem.images.failed(&path);
+            }
+        }
+        self.request_redraw();
+    }
+
     fn resize(&mut self, size: PhysicalSize<u32>) {
         if let Some(g) = &mut self.gfx {
             if size.width > 0 && size.height > 0 {
@@ -309,6 +396,7 @@ impl<A: App> Handler<A> {
         let size = (gfx.config.width, gfx.config.height);
         text.set_scale(scale);
         self.input.begin_frame(self.start.elapsed().as_secs_f64());
+        self.mem.images.begin_frame();
         self.dl.clear();
         let screen = Rect::new(0.0, 0.0, size.0 as f32 / scale, size.1 as f32 / scale);
         {
@@ -317,6 +405,7 @@ impl<A: App> Handler<A> {
             app.update(&mut ui, &mut ctx);
         }
         let overflowed = text.take_overflowed();
+        let image_requests = self.mem.images.take_requests();
         // クリックで状態が変わった結果を反映するため、入力があったフレームの後にもう 1 枚描く
         let had_input = self.input.has_activity();
         self.input.end_frame();
@@ -338,9 +427,15 @@ impl<A: App> Handler<A> {
         gfx.renderer.render(&gfx.device, &gfx.queue, &view, size, scale, &self.dl, text, clear);
         window.pre_present_notify();
         gfx.queue.present(frame);
+        for id in self.mem.images.evict(IMAGE_KEEP) {
+            gfx.renderer.remove_image(id);
+        }
 
         if self.mem.take_repaint() || overflowed || had_input {
             window.request_redraw();
+        }
+        if !image_requests.is_empty() {
+            self.request_images(image_requests);
         }
     }
 }
@@ -443,6 +538,7 @@ impl<A: App> ApplicationHandler<UserEvent> for Handler<A> {
                 log::error!("起動に失敗しました: {e}");
                 storage::show_error(&e);
             }
+            UserEvent::Image(path, bytes) => self.image_arrived(path, bytes),
         }
     }
 

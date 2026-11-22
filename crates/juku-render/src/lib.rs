@@ -5,10 +5,12 @@
 //! - 文字は fontdue でラスタライズし、動的なグリフアトラスに詰める
 
 mod draw;
+mod image;
 mod renderer;
 mod text;
 
 pub use draw::{Color, DrawList, Instance, Rect};
+pub use image::{decode_png, RgbaImage};
 pub use renderer::Renderer;
 pub use text::{FontWeight, TextSystem, ATLAS_SIZE};
 pub use wgpu;

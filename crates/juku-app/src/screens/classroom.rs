@@ -8,10 +8,42 @@ use crate::fmt::format_yen;
 use crate::portraits::{manager_expression, Portrait};
 
 pub fn draw(ui: &mut Ui, world: &mut World, ci: usize) {
+    building(ui, world, ci);
     reviews(ui, world, ci);
     concerns(ui, world, ci);
     manager(ui, world, ci);
     teachers(ui, world, ci);
+}
+
+/// 校舎の画像（未生成）と、街での立ち位置。
+fn building(ui: &mut Ui, world: &World, ci: usize) {
+    let t = ui.theme;
+    let c = &world.classrooms[ci];
+    let a = c.area;
+    let area = &world.areas[a];
+    ui.card(12.0, |ui| {
+        ui.set_spacing(6.0);
+        let w = ui.width();
+        let img = ui.alloc((w * 0.5).clamp(140.0, 280.0));
+        crate::images::picture(
+            ui,
+            img,
+            &format!("{}の校舎", c.name),
+            &crate::images::school_file(&area.name),
+            t.accent,
+        );
+        let r = ui.alloc(22.0);
+        let title = format!("{}・{}", area.region, area.name);
+        ui.text_in(r, &title, t.font_body, FontWeight::Bold, t.text, Align::Left);
+        if let Some((share, rank)) = world.area_standing(a) {
+            let (label, color) = if world.area_conquered(a) {
+                ("制覇".to_string(), t.star)
+            } else {
+                (format!("地域 {rank} 位・シェア {:.0}%", share * 100.0), t.text_dim)
+            };
+            ui.text_in(r, &label, t.font_small, FontWeight::Bold, color, Align::Right);
+        }
+    });
 }
 
 fn reviews(ui: &mut Ui, world: &World, ci: usize) {
