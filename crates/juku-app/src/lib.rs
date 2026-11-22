@@ -189,7 +189,7 @@ impl GameApp {
 }
 
 impl App for GameApp {
-    const SPRITE_ATLAS_PNG: Option<&'static [u8]> = Some(portraits::ATLAS_PNG);
+    const SPRITE_ATLAS_PNGS: &'static [&'static [u8]] = portraits::ATLAS_PNGS;
 
     fn update(&mut self, ui: &mut Ui, ctx: &mut Ctx) {
         let s = ui.screen();
