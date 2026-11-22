@@ -223,20 +223,34 @@ impl<'a> Ui<'a> {
     }
 
     /// 画面全体を暗くして中央にパネルを出す。中身は `f` で描く。
-    pub fn modal<R>(&mut self, width: f32, f: impl FnOnce(&mut Ui) -> R) -> R {
+    /// 画面全体を暗くして中央にパネルを出す。中身は `f` で描く。
+    /// 中身が画面より高いときはパネルの中をスクロールできる。
+    pub fn modal<R>(&mut self, id: Id, width: f32, f: impl FnOnce(&mut Ui) -> R) -> R {
         let t = self.theme;
         let s = self.screen();
         self.dl.rect(s, Color::BLACK.with_alpha(0.6), 0.0);
         let w = width.min(s.w - 24.0);
         let x = s.x + (s.w - w) * 0.5;
-        let y = s.y + s.h * 0.14;
-        let bg = self.dl.placeholder();
-        self.begin(x + 20.0, y + 20.0, w - 40.0, 10.0);
-        let r = f(self);
-        let end = self.end();
-        let h = end - y + 20.0;
-        self.dl.fill_placeholder(bg, Rect::new(x, y, w, h), t.card, 18.0, 2.0, t.accent);
-        r
+        // 前のフレームで測った中身の高さから、パネルの高さと位置を決める
+        let height_id = id.with(0xA11);
+        let prev = self.mem.floats.get(&height_id).copied().unwrap_or(s.h * 0.5);
+        let h = prev.min(s.h - 32.0);
+        let y = s.y + ((s.h - h) * 0.5).max(16.0);
+        let panel = Rect::new(x, y, w, h);
+        self.dl.rect_border(panel, t.card, 18.0, 2.0, t.accent);
+        let mut out = None;
+        self.scroll_area(id, panel.shrink(2.0), 0.0, |ui| {
+            ui.padded(18.0, 18.0, |ui| {
+                ui.set_spacing(10.0);
+                out = Some(f(ui));
+            });
+        });
+        let content = self.mem.scrolls.get(&id).map(|st| st.content).unwrap_or(prev) + 4.0;
+        if (content - prev).abs() > 0.5 {
+            self.mem.floats.insert(height_id, content);
+            self.mem.request_repaint();
+        }
+        out.expect("modal content")
     }
 }
 

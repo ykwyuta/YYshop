@@ -1007,7 +1007,16 @@ impl World {
                 options.push((5, "子どもが「塾が楽しい」と言うようになりました。".into()));
             }
             if options.is_empty() {
-                options.push((4, "落ち着いた雰囲気で、楽しく通っています。".into()));
+                let neutral: [(u8, &str); 6] = [
+                    (4, "落ち着いた雰囲気で、楽しく通っています。"),
+                    (4, "先生の説明がていねいで、わかりやすいそうです。"),
+                    (3, "可もなく不可もなく、といったところです。"),
+                    (4, "友だちと励まし合いながら頑張っています。"),
+                    (3, "成績はまだ横ばいですが、本人は前向きです。"),
+                    (4, "質問しやすい雰囲気なのがありがたいです。"),
+                ];
+                let (st, text) = neutral[self.rng.below(neutral.len())];
+                options.push((st, text.into()));
             }
             let (stars, text) = options[self.rng.below(options.len())].clone();
             self.reviews.insert(

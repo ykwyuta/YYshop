@@ -2,14 +2,14 @@
 
 use juku_render::{FontWeight, Rect};
 use juku_sim::{Choice, GameEvent, World};
-use juku_ui::{Align, ButtonStyle, Ui};
+use juku_ui::{Align, ButtonStyle, Id, Ui};
 
 use crate::art;
 use crate::fmt::pct;
 
 pub fn event(ui: &mut Ui, ev: &GameEvent) -> Option<Choice> {
     let t = ui.theme;
-    ui.modal(460.0, |ui| {
+    ui.modal(Id::new("modal-event"), 460.0, |ui| {
         ui.caption("判断が必要です");
         ui.label_ex(&ev.title, t.font_title, FontWeight::Bold, t.text, Align::Left);
         ui.space(4.0);
@@ -31,7 +31,7 @@ pub fn event(ui: &mut Ui, ev: &GameEvent) -> Option<Choice> {
 pub fn exam(ui: &mut Ui, world: &World, idx: usize) -> bool {
     let t = ui.theme;
     let Some(e) = world.exam_results.get(idx) else { return true };
-    ui.modal(480.0, |ui| {
+    ui.modal(Id::new("modal-exam").with(idx as u64), 480.0, |ui| {
         let r = ui.alloc(40.0);
         art::sakura(ui, r.x + 16.0, r.y + 20.0, 14.0);
         art::sakura(ui, r.right() - 16.0, r.y + 20.0, 14.0);
@@ -114,7 +114,7 @@ pub fn exam(ui: &mut Ui, world: &World, idx: usize) -> bool {
 /// 確認ダイアログ。Some(true) = 実行、Some(false) = やめる。
 pub fn confirm(ui: &mut Ui, title: &str, body: &str, ok: &str) -> Option<bool> {
     let t = ui.theme;
-    ui.modal(420.0, |ui| {
+    ui.modal(Id::new("modal-confirm"), 420.0, |ui| {
         ui.label_ex(title, t.font_title, FontWeight::Bold, t.text, Align::Left);
         ui.label(body);
         let mut out = None;
