@@ -147,7 +147,7 @@ fn open_second_classroom() {
     w.cash = 30_000_000;
     let areas = w.open_areas();
     let start_areas = w.areas.iter().filter(|a| a.unlock == AreaUnlock::Start).count();
-    assert_eq!(areas.len(), start_areas - 1, "最初は市内のエリアにだけ出店できる");
+    assert_eq!(areas.len(), start_areas - 1, "最初は東京西部のエリアにだけ出店できる");
     let area = areas[0];
     let cost = w.areas[area].open_cost;
     let cash = w.cash;
@@ -245,12 +245,12 @@ fn competitors_act_over_time() {
 
 #[test]
 fn rival_opens_where_player_dominates() {
-    // 誰もいない緑町に出店して独占すると、いずれ競合が乗り込んでくる
+    // 誰もいない府中に出店して独占すると、いずれ競合が乗り込んでくる
     let mut opened = 0;
     for seed in 0..4 {
         let mut w = World::new(600 + seed);
         w.cash = 50_000_000;
-        let midori = w.areas.iter().position(|a| a.name == "緑町").unwrap();
+        let midori = w.areas.iter().position(|a| a.name == "府中").unwrap();
         w.open_classroom(midori, 0).unwrap();
         run_managed(&mut w, 104);
         if w.rival_log.iter().any(|m| m.kind == RivalMoveKind::Open && m.area == midori) {
@@ -357,7 +357,7 @@ fn acquire_independent_into_new_classroom() {
 #[test]
 fn acquire_merges_into_existing_classroom() {
     let mut w = World::new(92);
-    // けやき台の個人塾を売りに出させて買う
+    // 吉祥寺の個人塾を売りに出させて買う
     let t = w.competitors.iter().position(|c| c.name == "小林算数教室").unwrap();
     w.competitors[t].for_sale = true;
     w.cash = 50_000_000;
@@ -478,7 +478,7 @@ fn retention_raise_is_capped_and_grants_loyalty() {
 fn northern_areas_unlock_with_three_classrooms() {
     let mut w = World::new(1300);
     w.cash = 100_000_000;
-    let north: Vec<usize> = (0..w.areas.len()).filter(|&a| w.areas[a].region == "北部").collect();
+    let north: Vec<usize> = (0..w.areas.len()).filter(|&a| w.areas[a].region == "埼玉").collect();
     let city: Vec<usize> = (0..w.areas.len()).filter(|&a| w.areas[a].region == "都心").collect();
     assert_eq!(north.len(), 3);
     assert_eq!(city.len(), 2);
@@ -488,10 +488,10 @@ fn northern_areas_unlock_with_three_classrooms() {
     w.open_classroom(start[0], 0).unwrap();
     assert!(north.iter().all(|a| !w.area_unlocked(*a)));
     w.open_classroom(start[1], 0).unwrap();
-    assert!(north.iter().all(|a| w.area_unlocked(*a)), "3 教室で北部が開く");
+    assert!(north.iter().all(|a| w.area_unlocked(*a)), "3 教室で埼玉が開く");
     assert!(city.iter().all(|a| !w.area_unlocked(*a)), "都心は上場まで開かない");
     run_managed(&mut w, 1);
-    assert!(w.history[0].news.iter().any(|n| n.contains("新しいエリア")), "お知らせが出る");
+    assert!(w.history[0].news.iter().any(|n| n.contains("新しい街")), "お知らせが出る");
     w.open_classroom(north[0], 0).unwrap();
 }
 
@@ -530,7 +530,7 @@ fn selling_to_rivals_widens_market_but_strengthens_them() {
         w.materials.axes = [0.85; materials::AXIS_COUNT];
         w.start_material_sales().unwrap();
         w.set_sell_to_rivals(rivals);
-        // けやき台の個人塾
+        // 吉祥寺の個人塾
         let rival = w.competitors.iter().position(|c| c.name == "小林算数教室").unwrap();
         let q = w.competitors[rival].quality;
         run_managed(&mut w, 78);
@@ -624,4 +624,39 @@ fn ipo_fails_if_conditions_are_lost_during_preparation() {
     assert!(!w.listing.is_listed());
     assert_eq!(w.listing.failed_attempts, 1);
     assert_eq!(w.listing.status, ListingStatus::Private);
+}
+
+// ---------------------------------------------------------------------------
+// 首都圏の街の攻略
+// ---------------------------------------------------------------------------
+
+#[test]
+fn real_towns_have_coordinates_and_regions() {
+    let w = World::new(1);
+    assert_eq!(w.areas[0].name, "吉祥寺", "創業の地は吉祥寺");
+    for a in &w.areas {
+        assert!((35.4..36.0).contains(&a.lat) && (139.4..140.1).contains(&a.lon), "{} は首都圏の範囲", a.name);
+    }
+    let regions = w.region_progress();
+    assert_eq!(regions.iter().map(|r| r.2).sum::<usize>(), w.areas.len());
+    assert!(regions.iter().any(|r| r.0 == "神奈川") && regions.iter().any(|r| r.0 == "湾岸・千葉"));
+    // 競合の出店先はすべて実在の街の範囲に収まる
+    assert!(w.competitors.iter().all(|c| c.branches.iter().all(|b| b.area < w.areas.len())));
+}
+
+#[test]
+fn conquest_needs_first_place_in_town() {
+    let mut w = World::new(2);
+    assert_eq!(w.conquest_progress(), (0, w.areas.len()), "最初はどの街も制覇していない");
+    assert!(w.area_standing(1).is_none(), "教室の無い街に順位は無い");
+    let (share, rank) = w.area_standing(0).unwrap();
+    assert!(rank > 1 && share < 0.35, "創業時の吉祥寺は大手に負けている");
+    run_managed(&mut w, 156);
+    for a in 0..w.areas.len() {
+        if w.area_conquered(a) {
+            let (share, rank) = w.area_standing(a).unwrap();
+            assert_eq!(rank, 1);
+            assert!(share >= World::CONQUEST_MIN_SHARE);
+        }
+    }
 }

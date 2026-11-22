@@ -31,6 +31,17 @@ pub struct Area {
     /// 出店できるようになる条件
     #[serde(default)]
     pub unlock: AreaUnlock,
+    /// 読みがな
+    #[serde(default)]
+    pub kana: String,
+    /// 最寄りの路線
+    #[serde(default)]
+    pub lines: String,
+    /// 駅の緯度・経度（タウンマップの位置）
+    #[serde(default)]
+    pub lat: f64,
+    #[serde(default)]
+    pub lon: f64,
 }
 
 /// エリアに出店できるようになる条件。
@@ -68,6 +79,10 @@ impl Area {
             pool_growth: a.pool_growth,
             region: a.region.into(),
             unlock: a.unlock,
+            kana: a.kana.into(),
+            lines: a.lines.into(),
+            lat: a.lat,
+            lon: a.lon,
         }
     }
 }
