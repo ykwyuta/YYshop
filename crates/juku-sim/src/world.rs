@@ -12,9 +12,11 @@ use crate::model::*;
 use crate::report::*;
 use crate::rng::Rng;
 
-pub const SAVE_VERSION: u32 = 3;
+pub const SAVE_VERSION: u32 = 4;
 /// 2 教室目からかかる本部の運営費（教室ごと・週）。
 const HQ_OVERHEAD_PER_EXTRA_CLASSROOM: Yen = 60_000;
+/// 本部の管理部門の費用（教室の売上に対する割合）。
+const HQ_MANAGEMENT_RATE: f64 = 0.02;
 /// 資金がマイナスのときの当座貸越の年利。
 const OVERDRAFT_RATE: f64 = 0.12;
 /// この週数だけ資金がマイナスのままだと倒産する。
@@ -22,6 +24,9 @@ pub const BANKRUPTCY_WEEKS: u32 = 26;
 /// 資金がこれを下回ると即座に倒産する。
 pub const BANKRUPTCY_FLOOR: Yen = -30_000_000;
 const MAX_RIVAL_LOG: usize = 40;
+/// 保存する週次レポートの長さ（セーブデータが際限なく大きくならないように）。
+const MAX_CLASSROOM_HISTORY: usize = 156;
+const MAX_COMPANY_HISTORY: usize = 260;
 
 /// ロジスティック関数の代わり（超越関数を使わない）。x=0 で 0.5。
 fn soft_step(x: f64) -> f64 {
@@ -64,6 +69,12 @@ pub struct World {
     /// 倒産した（ゲームオーバー）
     #[serde(default)]
     pub bankrupt: bool,
+    /// 株式上場
+    #[serde(default)]
+    pub listing: crate::listing::Listing,
+    /// 出店できるエリアの数（増えたらお知らせを出す）
+    #[serde(default)]
+    pub unlocked_areas: usize,
     pub(crate) next_id: u32,
     weeks_since_event: u32,
 }
@@ -77,19 +88,7 @@ impl World {
             .iter()
             .map(|s| School { name: s.name.into(), deviation: s.deviation, tier: s.tier })
             .collect();
-        let areas: Vec<Area> = data::AREAS
-            .iter()
-            .map(|a| Area {
-                name: a.name.into(),
-                address: a.address.into(),
-                description: a.description.into(),
-                pool: a.pool,
-                rent: a.rent,
-                open_cost: a.open_cost,
-                property_price: a.property_price,
-                pool_growth: a.pool_growth,
-            })
-            .collect();
+        let areas: Vec<Area> = data::AREAS.iter().map(Area::from_def).collect();
         let mut competitors: Vec<Competitor> = data::COMPETITORS.iter().map(Competitor::from_def).collect();
         for c in competitors.iter_mut() {
             let n = match c.style {
@@ -122,7 +121,7 @@ impl World {
         for _ in 0..6 {
             first.teachers.push(gen::make_teacher(&mut rng, &mut next_id, TeacherKind::Student));
         }
-        for (grade, n) in [(4u8, 22), (5, 24), (6, 20)] {
+        for (grade, n) in [(4u8, 22), (5, 24), (6, 18)] {
             for _ in 0..n {
                 let mut s = gen::make_student(&mut rng, &mut next_id, &schools, grade, false);
                 s.weeks_enrolled = 4 + rng.below(60) as u32;
@@ -166,6 +165,8 @@ impl World {
             loans: Vec::new(),
             negative_weeks: 0,
             bankrupt: false,
+            listing: Default::default(),
+            unlocked_areas: data::AREAS.iter().filter(|a| a.unlock == crate::market::AreaUnlock::Start).count(),
             next_id,
             weeks_since_event: 0,
         };
@@ -209,7 +210,23 @@ impl World {
 
     /// 自塾が教室を持っていないエリア（開校できる場所）。
     pub fn open_areas(&self) -> Vec<usize> {
-        (0..self.areas.len()).filter(|a| !self.classrooms.iter().any(|c| c.area == *a)).collect()
+        (0..self.areas.len())
+            .filter(|a| self.area_unlocked(*a) && !self.classrooms.iter().any(|c| c.area == *a))
+            .collect()
+    }
+
+    /// エリアに出店できる条件を満たしているか。
+    pub fn area_unlocked(&self, area: usize) -> bool {
+        match self.areas[area].unlock {
+            crate::market::AreaUnlock::Start => true,
+            crate::market::AreaUnlock::Classrooms(n) => self.classrooms.len() >= n as usize,
+            crate::market::AreaUnlock::Listed => self.listing.is_listed(),
+        }
+    }
+
+    /// まだ出店できないエリア。
+    pub fn locked_areas(&self) -> Vec<usize> {
+        (0..self.areas.len()).filter(|a| !self.area_unlocked(*a)).collect()
     }
 
     /// エリアの在籍シェア：(名前, 在籍数, 色, 自塾か)。
@@ -228,6 +245,9 @@ impl World {
 
     /// 企業価値の目安：現金 ＋ 物件 ＋ 直近の利益 × 6 ＋ ブランド − 借入残高。
     pub fn valuation(&self) -> Yen {
+        if self.listing.is_listed() {
+            return self.listing.market_cap;
+        }
         let recent: Vec<&CompanyWeek> = self.history.iter().rev().take(13).collect();
         let annual = if recent.is_empty() {
             0.0
@@ -453,8 +473,42 @@ impl World {
         if let Some(axis) = finished {
             company_news.push(format!("自社教材の「{}」の改訂が完了しました", materials::AXIS_LABELS[axis]));
         }
-        hq.overhead = HQ_OVERHEAD_PER_EXTRA_CLASSROOM * (n as Yen - 1).max(0);
+        // 本部の運営費：2 教室目からの固定費 ＋ 管理部門（経理・人事・システム）の売上比
+        let classroom_revenue: Yen = reports.iter().map(|r| r.pnl.revenue()).sum();
+        hq.overhead = HQ_OVERHEAD_PER_EXTRA_CLASSROOM * (n as Yen - 1).max(0)
+            + (classroom_revenue as f64 * HQ_MANAGEMENT_RATE) as Yen;
         self.cash -= dev_cost + hq.overhead;
+
+        // --- 教材の外販 ---
+        let sales = self.materials.advance_sales(self.brand, &mut self.rng);
+        self.cash += sales.revenue - sales.cost;
+        hq.sales_cost += sales.cost;
+        if self.materials.sales.active && self.materials.sales.sell_to_rivals {
+            // 自塾と競合する地域の個人塾・中小塾が、こちらの教材で強くなる
+            let ours: Vec<usize> = self.classrooms.iter().map(|c| c.area).collect();
+            for c in self.competitors.iter_mut().filter(|c| !c.style.is_major() && !c.acquired) {
+                if c.branches.iter().any(|b| ours.contains(&b.area)) {
+                    c.quality = (c.quality + 0.0015).min(0.8);
+                }
+            }
+        }
+
+        // --- 上場 ---
+        self.advance_listing(&mut hq, &mut flows, &mut company_news);
+
+        // --- 新しいエリア ---
+        let unlocked = (0..self.areas.len()).filter(|a| self.area_unlocked(*a)).count();
+        if unlocked > self.unlocked_areas {
+            if self.unlocked_areas > 0 {
+                let names: Vec<String> = (0..self.areas.len())
+                    .filter(|a| self.area_unlocked(*a))
+                    .skip(self.unlocked_areas)
+                    .map(|a| self.areas[a].name.clone())
+                    .collect();
+                company_news.insert(0, format!("新しいエリア（{}）に出店できるようになりました", names.join("・")));
+            }
+            self.unlocked_areas = unlocked;
+        }
 
         // --- 競合の動き（4 週ごと）---
         if calendar.week % 4 == 2 {
@@ -507,9 +561,22 @@ impl World {
                 .collect(),
             hq,
             flows,
+            materials_sales: sales.revenue,
             cash: self.cash,
             news: company_news,
         });
+
+        // 古い週次レポートを捨てる
+        if self.history.len() > MAX_COMPANY_HISTORY {
+            let extra = self.history.len() - MAX_COMPANY_HISTORY;
+            self.history.drain(..extra);
+        }
+        for c in self.classrooms.iter_mut() {
+            if c.history.len() > MAX_CLASSROOM_HISTORY {
+                let extra = c.history.len() - MAX_CLASSROOM_HISTORY;
+                c.history.drain(..extra);
+            }
+        }
 
         // --- イベント ---
         self.weeks_since_event += 1;
@@ -788,6 +855,10 @@ impl World {
         });
         self.padding_this_year = false;
         self.unseen_exam_result = true;
+        // 3 年より前の入試は、受験者ごとの明細を捨てて学校別の集計だけ残す
+        for r in self.exam_results.iter_mut().rev().skip(3) {
+            r.entries = Vec::new();
+        }
     }
 
     fn new_school_year(&mut self) {

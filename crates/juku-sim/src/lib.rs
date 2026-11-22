@@ -3,6 +3,7 @@
 //! このクレートは描画・OS・時刻に一切依存しない。乱数はシードから決定論的に生成するため、
 //! Windows と WebAssembly で同じ操作をすれば同じ結果になる。
 
+pub mod advisor;
 pub mod bot;
 pub mod calendar;
 pub mod classroom;
@@ -10,6 +11,7 @@ pub mod corporate;
 pub mod data;
 pub mod finance;
 mod gen;
+pub mod listing;
 pub mod market;
 pub mod materials;
 pub mod model;
@@ -20,7 +22,8 @@ pub mod world;
 pub use calendar::{Calendar, Date, Season};
 pub use classroom::{Classroom, ClassroomStats};
 pub use finance::{CapitalFlows, Loan, OfferLevel};
-pub use market::{Area, Branch, Competitor, CompetitorStyle, RivalMove, RivalMoveKind};
+pub use listing::{Listing, ListingStatus, Requirement};
+pub use market::{Area, AreaUnlock, Branch, Competitor, CompetitorStyle, RivalMove, RivalMoveKind};
 pub use materials::{MaterialSource, Materials};
 pub use model::*;
 pub use report::*;

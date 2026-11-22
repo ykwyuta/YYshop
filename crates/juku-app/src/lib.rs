@@ -10,6 +10,10 @@ use juku_sim::{Choice, World};
 use juku_ui::{Align, Id, Ui};
 
 pub const SAVE_KEY: &str = "autosave";
+/// 秘書の自動報告の設定。
+const AUTO_REPORT_KEY: &str = "auto_report";
+/// チュートリアルを最後まで見た（またはスキップした）。
+const TUTORIAL_KEY: &str = "tutorial_done";
 /// 画面の最大幅（PC の横長ウィンドウでも縦長のレイアウトを保つ）
 const MAX_WIDTH: f32 = 520.0;
 const HEADER_H: f32 = 150.0;
@@ -49,6 +53,9 @@ pub enum Confirm {
     Acquire(usize),
     /// 繰り上げ返済（Loan の id）
     Repay(u32),
+    StartIpo,
+    CancelIpo,
+    StopSales,
 }
 
 /// スター講師への声かけ（モーダル表示中）。
@@ -60,9 +67,17 @@ struct StarOffer {
     classroom: usize,
 }
 
+/// 秘書のウインドウ（表示中）。
+struct SecretaryView {
+    items: Vec<juku_sim::advisor::Advice>,
+    index: usize,
+}
+
 pub struct GameApp {
     world: Option<World>,
     has_save: bool,
+    /// 保存データの要約（スタート画面に出す）
+    save_summary: Option<screens::title::SaveSummary>,
     tab: Tab,
     /// 表示中の教室（World::classrooms の添字）
     selected: usize,
@@ -79,19 +94,29 @@ pub struct GameApp {
     star_offer: Option<StarOffer>,
     /// 本部タブのセクション
     hq_section: usize,
+    /// 秘書のウインドウ
+    secretary: Option<SecretaryView>,
+    /// もう伝えた報告（同じことを何度も言わない）
+    seen_advice: std::collections::HashSet<String>,
+    /// 週を進めたとき、新しい重要な報告があれば秘書が知らせる
+    auto_report: bool,
+    /// チュートリアル（表示中）
+    tutorial: Option<screens::tutorial::Tutorial>,
+    tutorial_done: bool,
     seed_counter: u64,
 }
 
 impl GameApp {
     pub fn new(storage: &mut juku_platform::Storage) -> Self {
-        let has_save = storage
+        let save_summary = storage
             .load(SAVE_KEY)
             .and_then(|b| postcard::from_bytes::<World>(&b).ok())
-            .map(|w| w.save_version == juku_sim::SAVE_VERSION)
-            .unwrap_or(false);
+            .filter(|w| w.save_version == juku_sim::SAVE_VERSION)
+            .map(|w| screens::title::SaveSummary::from_world(&w));
         GameApp {
             world: None,
-            has_save,
+            has_save: save_summary.is_some(),
+            save_summary,
             tab: Tab::Classroom,
             selected: 0,
             course_segment: 0,
@@ -102,6 +127,11 @@ impl GameApp {
             confirm: None,
             star_offer: None,
             hq_section: 0,
+            secretary: None,
+            seen_advice: Default::default(),
+            auto_report: storage.load(AUTO_REPORT_KEY).map(|b| b != b"0").unwrap_or(true),
+            tutorial: None,
+            tutorial_done: storage.load(TUTORIAL_KEY).is_some(),
             seed_counter: 0,
         }
     }
@@ -114,6 +144,7 @@ impl GameApp {
                         log::warn!("保存に失敗しました: {e}");
                     } else {
                         self.has_save = true;
+                        self.save_summary = Some(screens::title::SaveSummary::from_world(w));
                     }
                 }
                 Err(e) => log::warn!("保存データの作成に失敗しました: {e}"),
@@ -139,6 +170,12 @@ impl GameApp {
         self.world = Some(World::new(seed));
         self.tab = Tab::Classroom;
         self.selected = 0;
+        self.secretary = None;
+        self.seen_advice.clear();
+        // はじめて遊ぶ人には、秘書が画面を案内する
+        if !self.tutorial_done {
+            self.tutorial = Some(screens::tutorial::Tutorial::new());
+        }
     }
 
     fn show_toast(&mut self, msg: impl Into<String>, now: f64) {
@@ -160,7 +197,12 @@ impl App for GameApp {
         art::chalkboard(ui, Rect::new(x0, s.y, w, s.h));
 
         if self.world.is_none() {
-            match screens::title::draw(ui, Rect::new(x0, s.y, w, s.h), self.has_save) {
+            match screens::title::draw(
+                ui,
+                Rect::new(x0, s.y, w, s.h),
+                self.save_summary.as_ref().filter(|_| self.has_save),
+                !self.tutorial_done,
+            ) {
                 Some(screens::title::TitleAction::Continue) => {
                     if !self.load(ctx) {
                         self.has_save = false;
@@ -188,7 +230,13 @@ impl App for GameApp {
                 || self.confirm.is_some()
                 || self.opening_area.is_some()
                 || self.star_offer.is_some()
+                || self.secretary.is_some()
+                || self.tutorial.is_some()
         };
+        // チュートリアル中は、案内しているタブを開く
+        if let Some(tab) = self.tutorial.as_ref().and_then(|t| t.tab()) {
+            self.tab = tab;
+        }
         let n_classrooms = self.world.as_ref().unwrap().classrooms.len();
         self.selected = self.selected.min(n_classrooms - 1);
         let ci = self.selected;
@@ -205,6 +253,7 @@ impl App for GameApp {
             let hq_seg = &mut self.hq_section;
             let mut hq_action = None;
             let is_web = ctx.is_web;
+            let auto_report = self.auto_report;
             ui.scroll_area(id, viewport, 0.0, |ui| {
                 ui.padded(16.0, 18.0, |ui| {
                     ui.set_spacing(16.0);
@@ -213,7 +262,7 @@ impl App for GameApp {
                         Tab::Courses => screens::courses::draw(ui, world, ci, seg),
                         Tab::Marketing => screens::marketing::draw(ui, world, ci),
                         Tab::Accounting => screens::accounting::draw(ui, world, ci, acc_seg),
-                        Tab::Hq => hq_action = screens::hq::draw(ui, world, is_web, hq_seg),
+                        Tab::Hq => hq_action = screens::hq::draw(ui, world, is_web, hq_seg, auto_report),
                     }
                 });
             });
@@ -232,6 +281,11 @@ impl App for GameApp {
                 Some(screens::hq::HqAction::Open(area)) => self.opening_area = Some(area),
                 Some(screens::hq::HqAction::Toast(msg)) => self.show_toast(msg, now),
                 Some(screens::hq::HqAction::ForceReload) => self.confirm = Some(Confirm::Reload),
+                Some(screens::hq::HqAction::AutoReport(on)) => self.set_auto_report(on, ctx),
+                Some(screens::hq::HqAction::Tutorial) => {
+                    self.tutorial = Some(screens::tutorial::Tutorial::new());
+                    self.selected = 0;
+                }
                 Some(screens::hq::HqAction::Confirm(c)) => self.confirm = Some(c),
                 Some(screens::hq::HqAction::Star(competitor, star)) => {
                     self.star_offer = Some(StarOffer { competitor, star, classroom: ci })
@@ -242,15 +296,30 @@ impl App for GameApp {
 
         // ヘッダー
         let header = Rect::new(x0, s.y, w, HEADER_H);
-        let (stepped, switch) = {
-            let world = self.world.as_mut().unwrap();
-            screens::header::draw(ui, header, world, ci)
+        let notable = {
+            let world = self.world.as_ref().unwrap();
+            juku_sim::advisor::advise(world)
+                .iter()
+                .filter(|a| a.priority >= juku_sim::advisor::Priority::Important)
+                .count()
         };
-        if stepped {
+        let hr = {
+            let world = self.world.as_mut().unwrap();
+            screens::header::draw(ui, header, world, ci, notable)
+        };
+        if hr.stepped {
             self.save(ctx);
+            self.after_week();
         }
-        if let Some(next) = switch {
+        if let Some(next) = hr.switch {
             self.selected = next;
+        }
+        if hr.secretary {
+            let items = juku_sim::advisor::advise(self.world.as_ref().unwrap());
+            for a in &items {
+                self.seen_advice.insert(a.key.clone());
+            }
+            self.secretary = Some(SecretaryView { items, index: 0 });
         }
 
         // タブバー
@@ -261,6 +330,50 @@ impl App for GameApp {
 
         // モーダル
         ui.input_enabled = true;
+        let area = Rect::new(x0, s.y + HEADER_H, w, s.h - HEADER_H - TAB_H);
+        if let Some(tut) = &mut self.tutorial {
+            let layout = screens::tutorial::Layout { screen: s, x0, w, header_h: HEADER_H, tab_h: TAB_H };
+            let world = self.world.as_mut().unwrap();
+            if let screens::tutorial::Outcome::Done = tut.draw(ui, world, &layout) {
+                self.tutorial = None;
+                self.tutorial_done = true;
+                let _ = ctx.storage.save(TUTORIAL_KEY, b"1");
+                self.tab = Tab::Classroom;
+                self.save(ctx);
+            }
+            self.draw_toast(ui, x0, w);
+            return;
+        }
+        if let Some(view) = &mut self.secretary {
+            if self
+                .world
+                .as_ref()
+                .map(|w| w.pending_event.is_none() && !w.unseen_exam_result && !w.bankrupt)
+                .unwrap_or(false)
+            {
+                match screens::secretary::reports(ui, area, &view.items, view.index) {
+                    Some(screens::secretary::Action::Prev) => view.index = view.index.saturating_sub(1),
+                    Some(screens::secretary::Action::Next) => view.index += 1,
+                    Some(screens::secretary::Action::Close) => self.secretary = None,
+                    Some(screens::secretary::Action::Goto) => {
+                        if let Some(a) = view.items.get(view.index) {
+                            let (tab, section) = topic_target(a.topic);
+                            self.tab = tab;
+                            if let Some(sec) = section {
+                                self.hq_section = sec;
+                            }
+                            if let Some(ci) = a.classroom {
+                                self.selected = ci;
+                            }
+                        }
+                        self.secretary = None;
+                    }
+                    None => {}
+                }
+                self.draw_toast(ui, x0, w);
+                return;
+            }
+        }
         let world = self.world.as_mut().unwrap();
         if world.bankrupt {
             if screens::modals::bankrupt(ui, world) {
@@ -349,6 +462,15 @@ impl App for GameApp {
                         }
                         Confirm::Acquire(comp) => world.acquire(comp).map(|lines| lines.join("。")),
                         Confirm::Repay(id) => world.repay_loan(id).map(|_| "繰り上げ返済しました".into()),
+                        Confirm::StartIpo => world.start_ipo().map(|_| "上場準備を始めました".into()),
+                        Confirm::CancelIpo => {
+                            world.cancel_ipo();
+                            Ok("上場準備をやめました".into())
+                        }
+                        Confirm::StopSales => {
+                            world.stop_material_sales();
+                            Ok("教材の外販をやめました".into())
+                        }
                     };
                     if c != Confirm::Reload {
                         self.save(ctx);
@@ -368,6 +490,30 @@ impl App for GameApp {
 }
 
 impl GameApp {
+    /// 週を進めた後：新しく起きた重要なことがあれば、秘書が知らせる。
+    fn after_week(&mut self) {
+        if !self.auto_report {
+            return;
+        }
+        let Some(world) = &self.world else { return };
+        let fresh: Vec<juku_sim::advisor::Advice> = juku_sim::advisor::advise(world)
+            .into_iter()
+            .filter(|a| a.priority >= juku_sim::advisor::Priority::Important && !self.seen_advice.contains(&a.key))
+            .collect();
+        if fresh.is_empty() {
+            return;
+        }
+        for a in &fresh {
+            self.seen_advice.insert(a.key.clone());
+        }
+        self.secretary = Some(SecretaryView { items: fresh, index: 0 });
+    }
+
+    fn set_auto_report(&mut self, on: bool, ctx: &mut Ctx) {
+        self.auto_report = on;
+        let _ = ctx.storage.save(AUTO_REPORT_KEY, if on { b"1" } else { b"0" });
+    }
+
     fn draw_toast(&mut self, ui: &mut Ui, x0: f32, w: f32) {
         let now = ui.input.time;
         if let Some((msg, until)) = &self.toast {
@@ -481,9 +627,44 @@ fn confirm_text(world: &World, c: Confirm) -> (String, String, String) {
                 "買収する".into(),
             )
         }
+        Confirm::StartIpo => (
+            "上場準備を始める".into(),
+            format!(
+                "監査法人・証券会社と {} 週かけて準備します。費用は毎週 {}（総額 {}）かかります。準備が終わったときに条件を満たしていなければ、上場できず費用は戻りません。",
+                juku_sim::listing::IPO_PREP_WEEKS,
+                format_yen(juku_sim::listing::IPO_PREP_WEEKLY),
+                format_yen(juku_sim::listing::IPO_PREP_WEEKLY * juku_sim::listing::IPO_PREP_WEEKS as i64)
+            ),
+            "準備を始める".into(),
+        ),
+        Confirm::CancelIpo => (
+            "上場準備をやめる".into(),
+            "ここまでの準備費用は戻りません。もう一度上場するには、最初から準備し直す必要があります。".into(),
+            "やめる".into(),
+        ),
+        Confirm::StopSales => (
+            "教材の外販をやめる".into(),
+            format!("{} 塾との契約がすべて終わります。もう一度始めるには、営業体制をつくり直す費用がかかります。", world.materials.sales.contracts),
+            "外販をやめる".into(),
+        ),
         Confirm::Repay(id) => {
             let bal = world.loans.iter().find(|l| l.id == id).map(|l| l.balance).unwrap_or(0);
             ("繰り上げ返済".into(), format!("残高 {} を一括で返済します。", format_yen(bal)), "返済する".into())
         }
+    }
+}
+
+/// 報告の行き先：(タブ, 本部のセクション)。
+fn topic_target(topic: juku_sim::advisor::Topic) -> (Tab, Option<usize>) {
+    use juku_sim::advisor::Topic;
+    match topic {
+        Topic::Classroom => (Tab::Classroom, None),
+        Topic::Courses => (Tab::Courses, None),
+        Topic::Marketing => (Tab::Marketing, None),
+        Topic::Accounting => (Tab::Accounting, None),
+        Topic::Expansion => (Tab::Hq, Some(0)),
+        Topic::Finance => (Tab::Hq, Some(1)),
+        Topic::Materials => (Tab::Hq, Some(2)),
+        Topic::Exams => (Tab::Hq, Some(3)),
     }
 }

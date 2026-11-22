@@ -3,7 +3,9 @@
 use crate::classroom::{clamp01, Classroom};
 use crate::finance::{CapitalFlows, Loan, OfferLevel};
 use crate::gen;
+use crate::listing::{self, ListingStatus, Requirement};
 use crate::market::CompetitorStyle;
+use crate::materials;
 use crate::model::*;
 use crate::report::HqCosts;
 use crate::world::World;
@@ -37,10 +39,14 @@ impl World {
 
     /// あといくら借りられるか。利益・物件（担保）・ブランドで決まる。
     pub fn credit_limit(&self) -> Yen {
-        let base = 10_000_000.0
+        let mut base = 10_000_000.0
             + self.annual_profit().max(0) as f64 * 3.0
             + self.property_assets() as f64 * 0.7
             + self.brand * 20_000_000.0;
+        // 上場企業は信用が高い
+        if self.listing.is_listed() {
+            base += self.listing.market_cap as f64 * 0.1;
+        }
         let limit = base * (0.5 + self.trust);
         ((limit as Yen - self.debt()).max(0) / 1_000_000) * 1_000_000
     }
@@ -343,5 +349,224 @@ impl World {
         room.awareness = clamp01(room.awareness + 0.1);
         room.teachers.push(teacher);
         Ok(true)
+    }
+}
+
+impl World {
+    // ------------------------------------------------------------------
+    // 教材の外販
+    // ------------------------------------------------------------------
+
+    /// 外販を始める（自社教材が必要）。
+    pub fn start_material_sales(&mut self) -> Result<(), String> {
+        if !self.materials.is_own() {
+            return Err("外販するには自社教材が必要です".into());
+        }
+        if self.materials.sales.active {
+            return Err("すでに外販しています".into());
+        }
+        if self.cash < materials::SALES_LAUNCH_COST {
+            return Err("資金が足りません".into());
+        }
+        self.cash -= materials::SALES_LAUNCH_COST;
+        self.pending_hq.launch += materials::SALES_LAUNCH_COST;
+        let s = &mut self.materials.sales;
+        s.active = true;
+        s.started = Some(self.calendar.date());
+        Ok(())
+    }
+
+    /// 外販をやめる（契約はすべて終わる）。
+    pub fn stop_material_sales(&mut self) {
+        let s = &mut self.materials.sales;
+        s.active = false;
+        s.contracts = 0;
+    }
+
+    pub fn set_material_fee(&mut self, fee: Yen) {
+        self.materials.sales.fee = fee.clamp(5_000, 200_000);
+    }
+
+    pub fn set_sell_to_rivals(&mut self, on: bool) {
+        self.materials.sales.sell_to_rivals = on;
+    }
+
+    // ------------------------------------------------------------------
+    // 上場
+    // ------------------------------------------------------------------
+
+    /// その前の 52 週（53〜104 週前）の純利益。
+    fn previous_year_profit(&self) -> Option<Yen> {
+        if self.history.len() < 104 {
+            return None;
+        }
+        Some(self.history.iter().rev().skip(52).take(52).map(|w| w.net()).sum())
+    }
+
+    /// 上場の条件と、いま満たしているか。
+    pub fn ipo_requirements(&self) -> Vec<Requirement> {
+        let profit = self.annual_profit();
+        let prev = self.previous_year_profit();
+        let padded = self.exam_results.last().map(|e| e.padded).unwrap_or(false) || self.padding_this_year;
+        vec![
+            Requirement {
+                label: format!("教室を {} つ以上持つ", listing::REQ_CLASSROOMS),
+                detail: format!("いま {} 教室", self.classrooms.len()),
+                ok: self.classrooms.len() >= listing::REQ_CLASSROOMS,
+            },
+            Requirement {
+                label: format!("直近 1 年の純利益が {} 以上", crate::format_yen(listing::REQ_PROFIT)),
+                detail: format!("いま {}", crate::format_yen(profit)),
+                ok: profit >= listing::REQ_PROFIT,
+            },
+            Requirement {
+                label: "その前の 1 年も黒字".into(),
+                detail: match prev {
+                    Some(p) => crate::format_yen(p),
+                    None => "まだ 2 年分の決算がありません".into(),
+                },
+                ok: prev.map(|p| p > 0).unwrap_or(false),
+            },
+            Requirement {
+                label: "社会的な信頼が十分にある".into(),
+                detail: if self.trust >= listing::REQ_TRUST {
+                    "問題なし".into()
+                } else {
+                    "不祥事や強引な指導で信頼が下がっています".into()
+                },
+                ok: self.trust >= listing::REQ_TRUST,
+            },
+            Requirement {
+                label: "合格実績の水増しをしていない".into(),
+                detail: if padded {
+                    "直近の入試で実績を上積みしています".into()
+                } else {
+                    "問題なし".into()
+                },
+                ok: !padded,
+            },
+            Requirement {
+                label: "資金繰りに問題がない".into(),
+                detail: if self.cash >= 0 { "問題なし".into() } else { "資金がマイナスです".into() },
+                ok: self.cash >= 0,
+            },
+        ]
+    }
+
+    pub fn ipo_ready(&self) -> bool {
+        self.ipo_requirements().iter().all(|r| r.ok)
+    }
+
+    /// 上場準備を始める（1 年かかり、費用は毎週かかる）。
+    pub fn start_ipo(&mut self) -> Result<(), String> {
+        if self.listing.status != ListingStatus::Private {
+            return Err("すでに上場準備中か、上場しています".into());
+        }
+        if !self.ipo_ready() {
+            return Err("上場の条件を満たしていません".into());
+        }
+        self.listing.status = ListingStatus::Preparing { weeks_left: listing::IPO_PREP_WEEKS };
+        Ok(())
+    }
+
+    /// 上場準備をやめる（それまでの費用は戻らない）。
+    pub fn cancel_ipo(&mut self) {
+        if self.listing.is_preparing() {
+            self.listing.status = ListingStatus::Private;
+        }
+    }
+
+    /// 理論的な企業価値（株価の基準）：利益 × PER ＋ 純資産。
+    /// PER はブランドと成長率で 6〜25 倍（上場している学習塾の水準）。
+    pub fn fair_value(&self) -> Yen {
+        let ttm = self.annual_profit();
+        let growth = match self.previous_year_profit() {
+            Some(prev) => ((ttm - prev) as f64 / (prev.abs().max(10_000_000)) as f64).clamp(-0.5, 1.0),
+            None => 0.0,
+        };
+        let per = (8.0 + 10.0 * self.brand + 8.0 * growth).clamp(6.0, 25.0);
+        let equity = self.cash + (self.property_assets() as f64 * 0.8) as Yen - self.debt();
+        ((ttm.max(0) as f64 * per) as Yen + equity).max(0)
+    }
+
+    /// 1 株あたりの株価（未上場なら理論値）。
+    pub fn share_price(&self) -> f64 {
+        if self.listing.is_listed() {
+            self.listing.price()
+        } else {
+            self.fair_value() as f64 / listing::FOUNDER_SHARES as f64
+        }
+    }
+
+    /// 塾長の個人資産（持ち株の評価額）。
+    pub fn personal_assets(&self) -> Yen {
+        if self.listing.is_listed() {
+            (self.listing.founder_shares as f64 * self.listing.price()) as Yen
+        } else {
+            self.valuation().max(0)
+        }
+    }
+
+    /// 毎週の上場準備・株価の更新。
+    pub(crate) fn advance_listing(&mut self, hq: &mut HqCosts, flows: &mut CapitalFlows, news: &mut Vec<String>) {
+        match self.listing.status {
+            ListingStatus::Private => {}
+            ListingStatus::Preparing { weeks_left } => {
+                self.cash -= listing::IPO_PREP_WEEKLY;
+                hq.listing += listing::IPO_PREP_WEEKLY;
+                if weeks_left > 1 {
+                    self.listing.status = ListingStatus::Preparing { weeks_left: weeks_left - 1 };
+                } else if self.ipo_ready() {
+                    self.go_public(flows, news);
+                } else {
+                    self.listing.status = ListingStatus::Private;
+                    self.listing.failed_attempts += 1;
+                    news.insert(
+                        0,
+                        "上場審査に通りませんでした。条件を満たしてから、もう一度準備し直す必要があります".into(),
+                    );
+                }
+            }
+            ListingStatus::Listed => {
+                self.cash -= listing::LISTED_WEEKLY;
+                hq.listing += listing::LISTED_WEEKLY;
+                // 時価総額は理論値にゆっくり近づき、市場の気まぐれで毎週ゆれる
+                let target = self.fair_value() as f64;
+                let cap = self.listing.market_cap as f64;
+                let noise = 1.0 + self.rng.normal(0.0, 0.025);
+                self.listing.market_cap = ((cap * 0.92 + target * 0.08) * noise).max(0.0) as Yen;
+                self.listing.record_price();
+            }
+        }
+    }
+
+    fn go_public(&mut self, flows: &mut CapitalFlows, news: &mut Vec<String>) {
+        let pre_money = self.fair_value().max(listing::REQ_PROFIT * 8) as f64;
+        let fair_price = pre_money / listing::FOUNDER_SHARES as f64;
+        let ipo_price = fair_price * listing::IPO_DISCOUNT;
+        let raised = (listing::IPO_NEW_SHARES as f64 * ipo_price * (1.0 - listing::IPO_FEE)) as Yen;
+        let l = &mut self.listing;
+        l.status = ListingStatus::Listed;
+        l.listed_on = Some(self.calendar.date());
+        l.founder_shares = listing::FOUNDER_SHARES;
+        l.shares = listing::FOUNDER_SHARES + listing::IPO_NEW_SHARES;
+        l.ipo_price = ipo_price;
+        l.raised = raised;
+        // 初値は理論株価あたりから始まる
+        l.market_cap = (fair_price * l.shares as f64) as Yen;
+        l.price_history.clear();
+        l.record_price();
+        self.cash += raised;
+        flows.equity += raised;
+        self.trust = clamp01(self.trust + 0.05);
+        news.insert(
+            0,
+            format!(
+                "{}が株式を上場しました！公開価格 {} 円で {} を調達しました",
+                self.company_name,
+                ipo_price.round() as Yen,
+                crate::format_yen(raised)
+            ),
+        );
     }
 }

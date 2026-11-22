@@ -61,6 +61,101 @@ pub struct Materials {
     pub launched: Option<Date>,
     /// 改訂した回数
     pub revisions: u32,
+    /// 他塾への外販
+    #[serde(default)]
+    pub sales: ExternalSales,
+}
+
+// ---------------------------------------------------------------------------
+// 教材の外販
+// ---------------------------------------------------------------------------
+
+/// 外販を始めるための営業体制づくりの費用。
+pub const SALES_LAUNCH_COST: Yen = 3_000_000;
+/// 外販の営業・サポートの固定費（週）。
+pub const SALES_TEAM_WEEKLY: Yen = 80_000;
+/// 外販の売上に対する原価（印刷・配送・解説動画など）。
+pub const SALES_COGS_RATE: f64 = 0.2;
+/// 外販の利益にかかる税率。
+pub const SALES_TAX_RATE: f64 = 0.3;
+/// 教材を買ってくれそうな塾の数（市場）。
+pub const SALES_MARKET: f64 = 200.0;
+/// 地域の競合塾にも売ると、市場がこれだけ広がる。
+pub const SALES_RIVAL_BONUS: f64 = 0.4;
+/// 1 塾あたりの月額の相場。
+pub const SALES_REFERENCE_FEE: Yen = 30_000;
+
+/// 他塾への教材の外販。
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ExternalSales {
+    pub active: bool,
+    pub started: Option<Date>,
+    /// 契約している塾の数
+    pub contracts: u32,
+    /// 1 塾あたりの月額
+    pub fee: Yen,
+    /// 自塾と競合する地域の塾にも売る
+    pub sell_to_rivals: bool,
+    /// 先週の新規契約・解約
+    pub last_new: u32,
+    pub last_cancel: u32,
+}
+
+impl Default for ExternalSales {
+    fn default() -> Self {
+        ExternalSales {
+            active: false,
+            started: None,
+            contracts: 0,
+            fee: SALES_REFERENCE_FEE,
+            sell_to_rivals: false,
+            last_new: 0,
+            last_cancel: 0,
+        }
+    }
+}
+
+/// 1 週分の外販の結果。
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SalesWeek {
+    pub revenue: Yen,
+    /// 原価・営業費・税
+    pub cost: Yen,
+}
+
+impl Materials {
+    /// 外販での評価（入試対応・網羅性・わかりやすさ・演習量の平均。難度は好みが分かれるので入れない）。
+    pub fn quality_score(&self) -> f64 {
+        let a = &self.axes;
+        (a[AXIS_COVERAGE] + a[AXIS_CLARITY] + a[AXIS_PRACTICE] + a[AXIS_TREND]) / 4.0
+    }
+
+    /// 外販の 1 週分。契約は品質・ブランド・価格で増え、品質が落ちると解約される。
+    pub fn advance_sales(&mut self, brand: f64, rng: &mut crate::rng::Rng) -> SalesWeek {
+        if !self.sales.active {
+            return SalesWeek::default();
+        }
+        let q = self.quality_score();
+        let s = &mut self.sales;
+        let price = crate::market::price_score(s.fee, SALES_REFERENCE_FEE);
+        let appeal = (0.6 * q + 0.25 * brand + 0.15 * price).clamp(0.0, 1.0);
+        let market = SALES_MARKET * if s.sell_to_rivals { 1.0 + SALES_RIVAL_BONUS } else { 1.0 };
+        let potential = (market - s.contracts as f64).max(0.0);
+        let new = rng.round_stochastic(potential * appeal * appeal * appeal * 0.012);
+        let fee_ratio = s.fee as f64 / SALES_REFERENCE_FEE as f64;
+        let churn_rate = 0.002 + (0.55 - q).max(0.0) * 0.03 + (fee_ratio - 1.2).max(0.0) * 0.01;
+        let cancel = rng.round_stochastic(s.contracts as f64 * churn_rate).min(s.contracts);
+        s.contracts = s.contracts + new - cancel;
+        s.last_new = new;
+        s.last_cancel = cancel;
+        let revenue = (s.contracts as f64 * s.fee as f64 * 12.0 / 52.0) as Yen;
+        let mut cost = SALES_TEAM_WEEKLY + (revenue as f64 * SALES_COGS_RATE) as Yen;
+        let profit = revenue - cost;
+        if profit > 0 {
+            cost += (profit as f64 * SALES_TAX_RATE) as Yen;
+        }
+        SalesWeek { revenue, cost }
+    }
 }
 
 impl Default for Materials {
@@ -70,6 +165,7 @@ impl Default for Materials {
             axes: COMMERCIAL_AXES,
             project: None,
             launched: None,
+            sales: ExternalSales::default(),
             revisions: 0,
         }
     }

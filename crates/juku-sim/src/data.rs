@@ -1,6 +1,6 @@
 //! マスターデータ。塾名・学校名・人名はすべて架空。
 
-use crate::market::CompetitorStyle;
+use crate::market::{AreaUnlock, CompetitorStyle};
 use crate::model::{CampaignKind, SchoolTier};
 
 pub const SURNAMES: &[&str] = &[
@@ -92,7 +92,14 @@ pub const COMPETITORS: &[CompetitorDef] = &[
         care: 0.35,
         fees: [30_000, 46_000, 62_000],
         color: [0x4F, 0x8C, 0xF0],
-        branches: &[(0, [70, 75, 80]), (1, [90, 95, 100]), (4, [50, 55, 60])],
+        branches: &[
+            (0, [70, 75, 80]),
+            (1, [90, 95, 100]),
+            (4, [50, 55, 60]),
+            (6, [55, 60, 65]),
+            (8, [110, 120, 130]),
+            (9, [70, 75, 80]),
+        ],
     },
     CompetitorDef {
         name: "ひだまり進学教室",
@@ -102,7 +109,7 @@ pub const COMPETITORS: &[CompetitorDef] = &[
         care: 0.80,
         fees: [24_000, 37_000, 50_000],
         color: [0xF2, 0xB6, 0x3A],
-        branches: &[(0, [35, 35, 30]), (2, [40, 38, 32])],
+        branches: &[(0, [35, 35, 30]), (2, [40, 38, 32]), (5, [30, 30, 25]), (7, [25, 25, 20])],
     },
     CompetitorDef {
         name: "スタディリンク",
@@ -112,7 +119,18 @@ pub const COMPETITORS: &[CompetitorDef] = &[
         care: 0.25,
         fees: [12_000, 18_000, 26_000],
         color: [0xA8, 0x6B, 0xE8],
-        branches: &[(0, [30, 25, 20]), (1, [30, 25, 20]), (2, [20, 18, 15]), (3, [15, 12, 10]), (4, [25, 22, 18])],
+        branches: &[
+            (0, [30, 25, 20]),
+            (1, [30, 25, 20]),
+            (2, [20, 18, 15]),
+            (3, [15, 12, 10]),
+            (4, [25, 22, 18]),
+            (5, [15, 12, 10]),
+            (6, [20, 18, 15]),
+            (7, [12, 10, 8]),
+            (8, [40, 35, 30]),
+            (9, [30, 28, 24]),
+        ],
     },
     CompetitorDef {
         name: "青嵐アカデミー",
@@ -122,7 +140,7 @@ pub const COMPETITORS: &[CompetitorDef] = &[
         care: 0.65,
         fees: [32_000, 45_000, 58_000],
         color: [0x41, 0xC6, 0xC0],
-        branches: &[(2, [20, 22, 25]), (4, [25, 28, 30])],
+        branches: &[(2, [20, 22, 25]), (4, [25, 28, 30]), (6, [22, 24, 26]), (8, [40, 45, 50])],
     },
     CompetitorDef {
         name: "小林算数教室",
@@ -164,6 +182,36 @@ pub const COMPETITORS: &[CompetitorDef] = &[
         color: [0x9A, 0x9A, 0xC8],
         branches: &[(4, [8, 9, 9])],
     },
+    CompetitorDef {
+        name: "蒼穹ゼミナール",
+        style: CompetitorStyle::Elite,
+        brand: 0.85,
+        quality: 0.75,
+        care: 0.30,
+        fees: [33_000, 50_000, 68_000],
+        color: [0x2E, 0x5E, 0xB8],
+        branches: &[(8, [100, 110, 120]), (9, [60, 65, 70])],
+    },
+    CompetitorDef {
+        name: "北斗進学会",
+        style: CompetitorStyle::SmallChain,
+        brand: 0.35,
+        quality: 0.58,
+        care: 0.60,
+        fees: [23_000, 35_000, 48_000],
+        color: [0xC8, 0x9B, 0x3C],
+        branches: &[(5, [18, 16, 14]), (7, [16, 15, 13])],
+    },
+    CompetitorDef {
+        name: "北野学習塾",
+        style: CompetitorStyle::Independent,
+        brand: 0.22,
+        quality: 0.64,
+        care: 0.82,
+        fees: [21_000, 32_000, 44_000],
+        color: [0x7B, 0xB8, 0x8F],
+        branches: &[(5, [7, 7, 6])],
+    },
 ];
 
 pub struct AreaDef {
@@ -180,6 +228,10 @@ pub struct AreaDef {
     pub property_price: i64,
     /// 市場規模の年間の伸び（新興エリアは伸び、高齢化エリアは縮む）
     pub pool_growth: f64,
+    /// 地方（画面のまとまり）
+    pub region: &'static str,
+    /// 出店できるようになる条件
+    pub unlock: AreaUnlock,
 }
 
 pub const AREAS: &[AreaDef] = &[
@@ -192,6 +244,8 @@ pub const AREAS: &[AreaDef] = &[
         open_cost: 0,
         property_price: 95_000_000,
         pool_growth: 0.0,
+        region: "市内",
+        unlock: AreaUnlock::Start,
     },
     AreaDef {
         name: "桜ヶ丘",
@@ -202,6 +256,8 @@ pub const AREAS: &[AreaDef] = &[
         open_cost: 9_000_000,
         property_price: 135_000_000,
         pool_growth: 0.01,
+        region: "市内",
+        unlock: AreaUnlock::Start,
     },
     AreaDef {
         name: "港南",
@@ -212,6 +268,8 @@ pub const AREAS: &[AreaDef] = &[
         open_cost: 6_000_000,
         property_price: 70_000_000,
         pool_growth: 0.0,
+        region: "市内",
+        unlock: AreaUnlock::Start,
     },
     AreaDef {
         name: "緑町",
@@ -222,6 +280,8 @@ pub const AREAS: &[AreaDef] = &[
         open_cost: 5_500_000,
         property_price: 64_000_000,
         pool_growth: -0.02,
+        region: "市内",
+        unlock: AreaUnlock::Start,
     },
     AreaDef {
         name: "東雲",
@@ -232,6 +292,70 @@ pub const AREAS: &[AreaDef] = &[
         open_cost: 8_000_000,
         property_price: 120_000_000,
         pool_growth: 0.06,
+        region: "市内",
+        unlock: AreaUnlock::Start,
+    },
+    // ---- 北部（教室を 3 つ持つと出店できる）----
+    AreaDef {
+        name: "北野台",
+        address: "北野台1-12-3",
+        description: "北部の住宅地。個人塾と面倒見型が地元を固めている",
+        pool: 0.9,
+        rent: 95_000,
+        open_cost: 6_500_000,
+        property_price: 85_000_000,
+        pool_growth: 0.02,
+        region: "北部",
+        unlock: AreaUnlock::Classrooms(3),
+    },
+    AreaDef {
+        name: "みなと北",
+        address: "みなと北駅前2-1",
+        description: "再開発が進む北部の玄関口。市場が毎年 3% 伸びる",
+        pool: 1.1,
+        rent: 130_000,
+        open_cost: 8_500_000,
+        property_price: 115_000_000,
+        pool_growth: 0.03,
+        region: "北部",
+        unlock: AreaUnlock::Classrooms(3),
+    },
+    AreaDef {
+        name: "青葉ヶ丘",
+        address: "青葉ヶ丘4-7-2",
+        description: "落ち着いた丘の上の住宅地。家賃は安いが市場はゆるやかに縮む",
+        pool: 0.85,
+        rent: 80_000,
+        open_cost: 6_000_000,
+        property_price: 70_000_000,
+        pool_growth: -0.01,
+        region: "北部",
+        unlock: AreaUnlock::Classrooms(3),
+    },
+    // ---- 都心（上場すると出店できる）----
+    AreaDef {
+        name: "中央駅前",
+        address: "中央駅前1-1-1",
+        description: "都心の一等地。市場は最大だが家賃も最高。大手 2 社の本拠地",
+        pool: 1.9,
+        rent: 320_000,
+        open_cost: 20_000_000,
+        property_price: 300_000_000,
+        pool_growth: 0.0,
+        region: "都心",
+        unlock: AreaUnlock::Listed,
+    },
+    AreaDef {
+        name: "学園都市",
+        address: "学園都市3-5",
+        description: "大学と私立中高が集まる文教地区。教育熱心な家庭が多い",
+        pool: 1.5,
+        rent: 210_000,
+        open_cost: 15_000_000,
+        property_price: 200_000_000,
+        pool_growth: 0.02,
+        region: "都心",
+        unlock: AreaUnlock::Listed,
     },
 ];
 

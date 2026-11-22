@@ -8,7 +8,16 @@ use crate::art;
 use crate::fmt::format_yen;
 
 /// (週を進めたか, 切り替え先の教室)
-pub fn draw(ui: &mut Ui, r: Rect, world: &mut World, ci: usize) -> (bool, Option<usize>) {
+/// ヘッダーで起きたこと。
+pub struct HeaderResult {
+    pub stepped: bool,
+    pub switch: Option<usize>,
+    /// 秘書を呼んだ
+    pub secretary: bool,
+}
+
+/// `reports` は秘書が抱えている報告の数（バッジに出す）。
+pub fn draw(ui: &mut Ui, r: Rect, world: &mut World, ci: usize, reports: usize) -> HeaderResult {
     let t = ui.theme;
     ui.dl.rect(r, t.bar, 0.0);
     ui.dl.rect(Rect::new(r.x, r.bottom() - 1.0, r.w, 1.0), t.card_border, 0.0);
@@ -37,6 +46,10 @@ pub fn draw(ui: &mut Ui, r: Rect, world: &mut World, ci: usize) -> (bool, Option
         t.text,
         Align::Left,
     );
+    if world.listing.is_listed() {
+        let w = ui.measure(&world.company_name, t.font_heading, FontWeight::Bold);
+        ui.badge_at(name_x + w + 8.0, r.y + 7.0, "上場", t.star);
+    }
 
     let c = &world.classrooms[ci];
     let label = if n > 1 { format!("{}（{}/{}）", c.name, ci + 1, n) } else { format!("{}・{}", c.name, c.address) };
@@ -141,8 +154,9 @@ pub fn draw(ui: &mut Ui, r: Rect, world: &mut World, ci: usize) -> (bool, Option
         stepped = world.step_week();
     }
 
-    // 3 行目：教室長のひとこと
-    let bubble = Rect::new(r.x + pad, r.y + 106.0, r.w - pad * 2.0, 36.0);
+    // 3 行目：教室長のひとこと ＋ 秘書を呼ぶボタン
+    let sec = Rect::new(r.right() - pad - 76.0, r.y + 104.0, 76.0, 40.0);
+    let bubble = Rect::new(r.x + pad, r.y + 106.0, r.w - pad * 2.0 - 84.0, 36.0);
     let look = art::Look::from_name(&world.classrooms[ci].manager.name);
     art::person(ui, Rect::new(bubble.x, bubble.y - 6.0, 36.0, 42.0), look, true);
     let msg_r = Rect::new(bubble.x + 44.0, bubble.y + 2.0, bubble.w - 44.0, 32.0);
@@ -150,7 +164,33 @@ pub fn draw(ui: &mut Ui, r: Rect, world: &mut World, ci: usize) -> (bool, Option
     let msg = manager_message(world, ci);
     let fitted = ui.fit_text(&msg, t.font_small + 1.0, FontWeight::Regular, msg_r.w - 20.0);
     ui.text_in(msg_r.shrink(10.0), &fitted, t.font_small + 1.0, FontWeight::Regular, t.text, Align::Left);
-    (stepped, switch)
+
+    let pressed = ui.pressed(sec);
+    let fill = if pressed { t.accent_dark } else { t.card };
+    ui.dl.rect_border(sec, fill, 12.0, 1.5, t.accent);
+    art::person(ui, Rect::new(sec.x + 2.0, sec.y + 1.0, 30.0, 38.0), crate::screens::secretary::look(), true);
+    ui.text_in(
+        Rect::new(sec.x + 32.0, sec.y, sec.w - 34.0, sec.h),
+        "秘書",
+        t.font_small + 1.0,
+        FontWeight::Bold,
+        t.text,
+        Align::Center,
+    );
+    if reports > 0 {
+        let label = if reports > 9 { "9+".to_string() } else { reports.to_string() };
+        ui.dl.circle(sec.right() - 4.0, sec.y + 4.0, 10.0, t.negative);
+        ui.text_in(
+            Rect::new(sec.right() - 14.0, sec.y - 6.0, 20.0, 20.0),
+            &label,
+            t.font_small - 1.0,
+            FontWeight::Bold,
+            Color::WHITE,
+            Align::Center,
+        );
+    }
+    let secretary = ui.clicked(sec);
+    HeaderResult { stepped, switch, secretary }
 }
 
 fn manager_message(world: &World, ci: usize) -> String {

@@ -269,7 +269,7 @@ pub fn bankrupt(ui: &mut Ui, world: &World) -> bool {
         ui.caption("ゲームオーバー");
         ui.label_ex(&format!("{}は倒産しました", world.company_name), t.font_title, FontWeight::Bold, t.negative, Align::Left);
         ui.label("資金繰りがつかず、教室を続けられなくなりました。");
-        let years = world.history.len() as f64 / 52.0;
+        let years = ((world.calendar.school_year - 2027) as f64 * 52.0 + world.calendar.week as f64) / 52.0;
         ui.kv_row("経営した期間", &format!("{years:.1} 年"), None);
         ui.kv_row("最後の資金", &crate::fmt::format_yen(world.cash), Some(t.negative));
         ui.kv_row("借入残高", &crate::fmt::format_yen(world.debt()), None);

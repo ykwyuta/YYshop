@@ -146,7 +146,8 @@ fn open_second_classroom() {
     let mut w = World::new(31);
     w.cash = 30_000_000;
     let areas = w.open_areas();
-    assert_eq!(areas.len(), w.areas.len() - 1);
+    let start_areas = w.areas.iter().filter(|a| a.unlock == AreaUnlock::Start).count();
+    assert_eq!(areas.len(), start_areas - 1, "最初は市内のエリアにだけ出店できる");
     let area = areas[0];
     let cost = w.areas[area].open_cost;
     let cash = w.cash;
@@ -467,4 +468,160 @@ fn retention_raise_is_capped_and_grants_loyalty() {
     let t = w.classrooms[0].teachers.iter().find(|t| t.id == id).unwrap();
     assert!(t.pay <= MAX_PRO_PAY, "昇給を重ねても上限を超えない: {}", t.pay);
     assert!(t.loyal_weeks > 0, "引き止めた講師はしばらく引き抜かれない");
+}
+
+// ---------------------------------------------------------------------------
+// 新しいエリア
+// ---------------------------------------------------------------------------
+
+#[test]
+fn northern_areas_unlock_with_three_classrooms() {
+    let mut w = World::new(1300);
+    w.cash = 100_000_000;
+    let north: Vec<usize> = (0..w.areas.len()).filter(|&a| w.areas[a].region == "北部").collect();
+    let city: Vec<usize> = (0..w.areas.len()).filter(|&a| w.areas[a].region == "都心").collect();
+    assert_eq!(north.len(), 3);
+    assert_eq!(city.len(), 2);
+    assert!(north.iter().all(|a| !w.area_unlocked(*a)));
+    assert!(w.open_classroom(north[0], 0).is_err(), "条件を満たすまで出店できない");
+    let start: Vec<usize> = w.open_areas();
+    w.open_classroom(start[0], 0).unwrap();
+    assert!(north.iter().all(|a| !w.area_unlocked(*a)));
+    w.open_classroom(start[1], 0).unwrap();
+    assert!(north.iter().all(|a| w.area_unlocked(*a)), "3 教室で北部が開く");
+    assert!(city.iter().all(|a| !w.area_unlocked(*a)), "都心は上場まで開かない");
+    run_managed(&mut w, 1);
+    assert!(w.history[0].news.iter().any(|n| n.contains("新しいエリア")), "お知らせが出る");
+    w.open_classroom(north[0], 0).unwrap();
+}
+
+// ---------------------------------------------------------------------------
+// 教材の外販
+// ---------------------------------------------------------------------------
+
+#[test]
+fn material_sales_need_own_materials_and_grow_with_quality() {
+    let mut w = World::new(1400);
+    assert!(w.start_material_sales().is_err(), "市販教材は外販できない");
+    w.launch_own_materials().unwrap();
+    w.cash = 50_000_000;
+    w.materials.axes = [0.85; materials::AXIS_COUNT];
+    w.start_material_sales().unwrap();
+    assert!(w.start_material_sales().is_err());
+    run_managed(&mut w, 51);
+    let good = w.materials.sales.contracts;
+    assert!(good > 25, "良い教材は 1 年で契約が増える: {good}");
+    let revenue: Yen = w.history.iter().map(|h| h.materials_sales).sum();
+    let cost: Yen = w.history.iter().map(|h| h.hq.sales_cost).sum();
+    assert!(revenue > cost, "外販は黒字になる: {revenue} vs {cost}");
+
+    // 教材が古くなると解約が増える
+    w.materials.axes = [0.2; materials::AXIS_COUNT];
+    run_managed(&mut w, 26);
+    assert!(w.materials.sales.contracts < good, "質が落ちると契約が減る");
+}
+
+#[test]
+fn selling_to_rivals_widens_market_but_strengthens_them() {
+    let setup = |rivals: bool| {
+        let mut w = World::new(1500);
+        w.launch_own_materials().unwrap();
+        w.cash = 50_000_000;
+        w.materials.axes = [0.85; materials::AXIS_COUNT];
+        w.start_material_sales().unwrap();
+        w.set_sell_to_rivals(rivals);
+        // けやき台の個人塾
+        let rival = w.competitors.iter().position(|c| c.name == "小林算数教室").unwrap();
+        let q = w.competitors[rival].quality;
+        run_managed(&mut w, 78);
+        (w.materials.sales.contracts, w.competitors[rival].quality - q)
+    };
+    let (exclusive, q_ex) = setup(false);
+    let (open, q_open) = setup(true);
+    assert!(open > exclusive, "地域の塾にも売ると契約が増える: {open} vs {exclusive}");
+    assert!(q_open > q_ex + 0.05, "その代わり地域の競合が強くなる");
+}
+
+// ---------------------------------------------------------------------------
+// 上場
+// ---------------------------------------------------------------------------
+
+/// 上場の条件を満たす会社をつくる（4 教室・2 年分の黒字決算）。
+fn ipo_ready_world() -> World {
+    let mut w = World::new(1600);
+    w.cash = 100_000_000;
+    for a in w.open_areas().into_iter().take(3) {
+        w.open_classroom(a, 0).unwrap();
+    }
+    run_managed(&mut w, 104);
+    // 決算を条件ぎりぎりの黒字に整える（テストを係数の調整から切り離す）
+    for h in w.history.iter_mut() {
+        h.classrooms[0].2 = 3_000_000;
+    }
+    w.cash = w.cash.max(50_000_000);
+    w.trust = 0.8;
+    w.padding_this_year = false;
+    w
+}
+
+#[test]
+fn ipo_requires_conditions() {
+    let w = World::new(1601);
+    let reqs = w.ipo_requirements();
+    assert!(!w.ipo_ready());
+    assert!(reqs.iter().any(|r| !r.ok && r.label.contains("教室")));
+    let mut w = World::new(1602);
+    assert!(w.start_ipo().is_err());
+}
+
+#[test]
+fn ipo_lists_after_a_year_of_preparation() {
+    let mut w = ipo_ready_world();
+    assert!(w.ipo_ready(), "{:?}", w.ipo_requirements().iter().filter(|r| !r.ok).map(|r| &r.label).collect::<Vec<_>>());
+    w.start_ipo().unwrap();
+    assert!(w.listing.is_preparing());
+    let city: Vec<usize> = (0..w.areas.len()).filter(|&a| w.areas[a].region == "都心").collect();
+    assert!(!w.area_unlocked(city[0]));
+    let cash_before = w.cash;
+    for _ in 0..listing::IPO_PREP_WEEKS {
+        // 準備中も条件を保つ
+        for h in w.history.iter_mut() {
+            h.classrooms[0].2 = 3_000_000;
+        }
+        w.trust = 0.8;
+        if w.pending_event.is_some() {
+            w.resolve_event(Choice::B);
+        }
+        w.step_week();
+    }
+    assert!(w.listing.is_listed(), "1 年の準備で上場する");
+    assert!(w.listing.raised > 0);
+    let raised_week = w.history.iter().find(|h| h.flows.equity > 0).expect("調達が記録される");
+    assert_eq!(raised_week.flows.equity, w.listing.raised);
+    assert!(w.cash > cash_before, "調達で資金が増える");
+    assert!(w.personal_assets() > 0);
+    assert_eq!(w.valuation(), w.listing.market_cap);
+    assert!(w.area_unlocked(city[0]), "上場すると都心が開く");
+    let prep: Yen = w.history.iter().map(|h| h.hq.listing).sum();
+    assert!(prep >= listing::IPO_PREP_WEEKLY * (listing::IPO_PREP_WEEKS as Yen - 1));
+    // 上場後は株価が動く
+    run_managed(&mut w, 10);
+    assert!(w.listing.price_history.len() > 5);
+}
+
+#[test]
+fn ipo_fails_if_conditions_are_lost_during_preparation() {
+    let mut w = ipo_ready_world();
+    w.start_ipo().unwrap();
+    w.trust = 0.2; // 準備中に不祥事
+    for _ in 0..listing::IPO_PREP_WEEKS {
+        if w.pending_event.is_some() {
+            w.resolve_event(Choice::B);
+        }
+        w.trust = 0.2;
+        w.step_week();
+    }
+    assert!(!w.listing.is_listed());
+    assert_eq!(w.listing.failed_attempts, 1);
+    assert_eq!(w.listing.status, ListingStatus::Private);
 }

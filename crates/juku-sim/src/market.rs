@@ -25,6 +25,51 @@ pub struct Area {
     /// 市場規模の年間の伸び
     #[serde(default)]
     pub pool_growth: f64,
+    /// 地方（画面のまとまり）
+    #[serde(default)]
+    pub region: String,
+    /// 出店できるようになる条件
+    #[serde(default)]
+    pub unlock: AreaUnlock,
+}
+
+/// エリアに出店できるようになる条件。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AreaUnlock {
+    /// 最初から
+    #[default]
+    Start,
+    /// 教室をこの数だけ持つ
+    Classrooms(u32),
+    /// 上場している
+    Listed,
+}
+
+impl AreaUnlock {
+    pub fn label(self) -> String {
+        match self {
+            AreaUnlock::Start => "最初から".into(),
+            AreaUnlock::Classrooms(n) => format!("教室を {n} つ持つと出店できます"),
+            AreaUnlock::Listed => "上場すると出店できます".into(),
+        }
+    }
+}
+
+impl Area {
+    pub fn from_def(a: &data::AreaDef) -> Self {
+        Area {
+            name: a.name.into(),
+            address: a.address.into(),
+            description: a.description.into(),
+            pool: a.pool,
+            rent: a.rent,
+            open_cost: a.open_cost,
+            property_price: a.property_price,
+            pool_growth: a.pool_growth,
+            region: a.region.into(),
+            unlock: a.unlock,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -81,6 +126,18 @@ impl CompetitorStyle {
             self,
             CompetitorStyle::Elite | CompetitorStyle::Caring | CompetitorStyle::Online | CompetitorStyle::Individual
         )
+    }
+
+    /// 1 教室あたりの在籍数の上限（これを超えると新しい生徒を受け入れない）。
+    pub fn branch_capacity(self) -> u32 {
+        match self {
+            CompetitorStyle::Elite => 400,
+            CompetitorStyle::Caring => 200,
+            CompetitorStyle::Online => 300,
+            CompetitorStyle::Individual => 180,
+            CompetitorStyle::Independent => 40,
+            CompetitorStyle::SmallChain => 110,
+        }
     }
 
     /// 撤退を考え始める在籍数。
@@ -380,10 +437,14 @@ pub fn competitor_turn(
             competitors[ci].branches.remove(bi);
         }
 
+        // 売りに出していた塾が、買い手がつかずに売却を取りやめることがある
+        if competitors[ci].for_sale && rng.chance(0.06) {
+            competitors[ci].for_sale = false;
+        }
         // 個人塾・中小塾は、後継者不足や経営難で売りに出ることがある
         if !style.is_major() && !competitors[ci].for_sale && !competitors[ci].branches.is_empty() {
             let weak = competitors[ci].branches.iter().any(|b| b.weak_months > 0);
-            if rng.chance(if weak { 0.15 } else { 0.03 }) {
+            if rng.chance(if weak { 0.12 } else { 0.015 }) {
                 competitors[ci].for_sale = true;
                 let area = competitors[ci].branches[0].area;
                 let reason = if style == CompetitorStyle::Independent {
@@ -480,19 +541,7 @@ mod tests {
 
     fn setup() -> (Vec<Competitor>, Vec<Area>) {
         let comps = data::COMPETITORS.iter().map(Competitor::from_def).collect();
-        let areas = data::AREAS
-            .iter()
-            .map(|a| Area {
-                name: a.name.into(),
-                address: a.address.into(),
-                description: a.description.into(),
-                pool: a.pool,
-                rent: a.rent,
-                open_cost: a.open_cost,
-                property_price: a.property_price,
-                pool_growth: a.pool_growth,
-            })
-            .collect();
+        let areas = data::AREAS.iter().map(Area::from_def).collect();
         (comps, areas)
     }
 
