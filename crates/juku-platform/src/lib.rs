@@ -20,7 +20,7 @@ use winit::event::{ElementState, MouseButton, MouseScrollDelta, TouchPhase, Wind
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy};
 use winit::window::{Window, WindowId};
 
-pub use storage::Storage;
+pub use storage::{show_fatal, Storage};
 
 /// アプリ本体（画面）が実装する。
 pub trait App: 'static {
@@ -178,6 +178,12 @@ async fn init_gfx(instance: wgpu::Instance, window: Arc<Window>, size: PhysicalS
         .await
         .map_err(|e| format!("device: {e}"))?;
 
+    // GPU の検証エラーは画面にも出す（スマホでは開発者ツールが見られないため）
+    device.on_uncaptured_error(std::sync::Arc::new(|e: wgpu::Error| {
+        log::error!("GPU エラー: {e}");
+        storage::show_fatal(&format!("GPU エラー：{e}"));
+    }));
+
     let caps = surface.get_capabilities(&adapter);
     // 色をそのまま扱えるよう、sRGB でない形式を優先する
     let format = caps
@@ -197,7 +203,9 @@ async fn init_gfx(instance: wgpu::Instance, window: Arc<Window>, size: PhysicalS
     Ok(Gfx { surface, device, queue, config, renderer })
 }
 
-/// Web：WebGPU が使えればそれを、だめなら WebGL2 を使う。
+/// Web：ふだんは WebGL2 で描く。WebGPU はブラウザによる差がまだ大きく
+/// （iOS の Safari などで真っ暗になることがある）、この 2D の画面では利点も小さいため、
+/// URL に `?gpu=webgpu` をつけたときだけ試す。
 ///
 /// canvas は一度 WebGPU のコンテキストを取ると WebGL2 に切り替えられないため、
 /// 先に surface なしでアダプタの有無だけを確かめる。
@@ -209,19 +217,16 @@ async fn init_gfx_web(window: Arc<Window>, size: PhysicalSize<u32>) -> Result<Gf
             ..wgpu::InstanceDescriptor::new_without_display_handle()
         })
     };
-    let webgpu = make(wgpu::Backends::BROWSER_WEBGPU);
-    let probe = webgpu.request_adapter(&wgpu::RequestAdapterOptions::default()).await;
-    if probe.is_ok() {
-        drop(probe);
-        match init_gfx(webgpu, window.clone(), size).await {
-            Ok(g) => return Ok(g),
-            Err(e) => {
-                log::warn!("WebGPU は使えません: {e}");
-                return Err(e);
-            }
+    if storage::query_has("gpu=webgpu") {
+        let webgpu = make(wgpu::Backends::BROWSER_WEBGPU);
+        let probe = webgpu.request_adapter(&wgpu::RequestAdapterOptions::default()).await;
+        if probe.is_ok() {
+            drop(probe);
+            log::info!("WebGPU で描画します");
+            return init_gfx(webgpu, window, size).await;
         }
+        log::info!("WebGPU が使えないため WebGL2 で描画します");
     }
-    log::info!("WebGPU が使えないため WebGL2 で描画します");
     init_gfx(make(wgpu::Backends::GL), window, size).await
 }
 
