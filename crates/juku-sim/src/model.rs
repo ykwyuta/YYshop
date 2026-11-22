@@ -321,26 +321,6 @@ impl Manager {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Competitor {
-    pub name: String,
-    pub style: String,
-    pub address: String,
-    pub brand: f64,
-    pub quality: f64,
-    pub care: f64,
-    pub fees: [Yen; 3],
-    /// 学年別の在籍数（4・5・6 年）
-    pub students: [u32; 3],
-    pub color: [u8; 3],
-}
-
-impl Competitor {
-    pub fn total_students(&self) -> u32 {
-        self.students.iter().sum()
-    }
-}
-
 /// 口コミ。
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Review {

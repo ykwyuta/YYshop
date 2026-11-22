@@ -7,10 +7,13 @@ use juku_ui::{Align, ButtonStyle, Id, Ui};
 use crate::art;
 use crate::fmt::pct;
 
-pub fn event(ui: &mut Ui, ev: &GameEvent) -> Option<Choice> {
+pub fn event(ui: &mut Ui, ev: &GameEvent, classroom: Option<&str>) -> Option<Choice> {
     let t = ui.theme;
     ui.modal(Id::new("modal-event"), 460.0, |ui| {
-        ui.caption("判断が必要です");
+        match classroom {
+            Some(name) => ui.caption(&format!("判断が必要です・{name}")),
+            None => ui.caption("判断が必要です・本部"),
+        };
         ui.label_ex(&ev.title, t.font_title, FontWeight::Bold, t.text, Align::Left);
         ui.space(4.0);
         ui.label(&ev.body);
@@ -95,6 +98,19 @@ pub fn exam(ui: &mut Ui, world: &World, idx: usize) -> bool {
                 Align::Right,
             );
         }
+        if world.classrooms.len() > 1 {
+            ui.separator();
+            let mut names: Vec<&str> = e.entries.iter().map(|x| x.classroom.as_str()).collect();
+            names.dedup();
+            names.sort();
+            names.dedup();
+            for name in names {
+                let passes = e.entries.iter().filter(|x| x.classroom == name && x.passed).count();
+                let first = e.entries.iter().filter(|x| x.classroom == name && x.first_choice).count();
+                let first_pass = e.entries.iter().filter(|x| x.classroom == name && x.first_choice && x.passed).count();
+                ui.kv_row(name, &format!("合格 {passes} 件・第一志望 {first_pass}/{first}"), None);
+            }
+        }
         if !e.highlights.is_empty() {
             ui.separator();
             for h in &e.highlights {
@@ -123,6 +139,62 @@ pub fn confirm(ui: &mut Ui, title: &str, body: &str, ok: &str) -> Option<bool> {
         }
         if ui.button("やめる", ButtonStyle::Ghost) {
             out = Some(false);
+        }
+        out
+    })
+}
+
+/// 開校：教室長を選ぶ。Some(Some(i)) = 候補 i で開校、Some(None) = やめる。
+pub fn open_classroom(ui: &mut Ui, world: &World, area: usize) -> Option<Option<usize>> {
+    let t = ui.theme;
+    let a = &world.areas[area];
+    ui.modal(Id::new("modal-open").with(area as u64), 480.0, |ui| {
+        ui.caption("新しい教室を開く");
+        ui.label_ex(&format!("{}校", a.name), t.font_title, FontWeight::Bold, t.text, Align::Left);
+        ui.kv_row("開校費", &crate::fmt::format_yen(a.open_cost), Some(t.accent));
+        ui.kv_row("家賃", &format!("{}/週", crate::fmt::format_yen(a.rent)), None);
+        ui.label("この教室を任せる教室長を選んでください。");
+        let mut out = None;
+        for (i, m) in world.manager_candidates.iter().enumerate() {
+            ui.card(12.0, |ui| {
+                ui.set_spacing(4.0);
+                let r = ui.alloc(24.0);
+                ui.text_in(r, &m.name, t.font_body, FontWeight::Bold, t.text, Align::Left);
+                ui.text_in(
+                    r,
+                    &format!("年俸 {}", crate::fmt::format_yen(m.salary)),
+                    t.font_small,
+                    FontWeight::Regular,
+                    t.text_dim,
+                    Align::Right,
+                );
+                for (label, v) in
+                    [("講師管理", m.staffing), ("指導", m.teaching), ("営業", m.sales), ("倫理", m.ethics)]
+                {
+                    let r = ui.alloc(16.0);
+                    ui.text_in(
+                        Rect::new(r.x, r.y, 64.0, 16.0),
+                        label,
+                        t.font_small,
+                        FontWeight::Regular,
+                        t.text_dim,
+                        Align::Left,
+                    );
+                    ui.meter_at(
+                        Rect::new(r.x + 64.0, r.y + 3.0, r.w - 64.0 - 30.0, 10.0),
+                        v as f32 / 100.0,
+                        t.positive,
+                    );
+                    ui.text_in(r, &v.to_string(), t.font_small, FontWeight::Bold, t.text, Align::Right);
+                }
+                ui.space(4.0);
+                if ui.button("この人に任せて開校する", ButtonStyle::Primary) {
+                    out = Some(Some(i));
+                }
+            });
+        }
+        if ui.button("やめる", ButtonStyle::Ghost) {
+            out = Some(None);
         }
         out
     })

@@ -6,43 +6,49 @@ use juku_ui::{Align, Id, Ui};
 
 use crate::fmt::{format_yen, pct};
 
-pub fn draw(ui: &mut Ui, world: &mut World) {
-    share(ui, world);
-    brand(ui, world);
-    campaigns(ui, world);
+pub fn draw(ui: &mut Ui, world: &mut World, ci: usize) {
+    share(ui, world, ci);
+    rivals(ui, world, ci);
+    brand(ui, world, ci);
+    campaigns(ui, world, ci);
 }
 
-fn share(ui: &mut Ui, world: &World) {
+fn share(ui: &mut Ui, world: &World, ci: usize) {
     let t = ui.theme;
-    ui.heading("地域の生徒シェア");
-    let ours = world.students.len() as f32;
-    let mut segs: Vec<(f32, Color)> = vec![(ours, t.accent)];
-    for c in &world.competitors {
-        segs.push((c.total_students() as f32, Color::rgb(c.color[0], c.color[1], c.color[2])));
-    }
+    let room = &world.classrooms[ci];
+    let area = &world.areas[room.area];
+    ui.heading(&format!("{}エリアの生徒シェア", area.name));
+    let shares = world.area_shares(room.area);
+    let segs: Vec<(f32, Color)> = shares
+        .iter()
+        .map(|(_, n, col, ours)| (*n as f32, if *ours { t.accent } else { Color::rgb(col[0], col[1], col[2]) }))
+        .collect();
     ui.card(16.0, |ui| {
-        let r = ui.alloc(200.0);
+        let rows = shares.len().max(4) as f32;
+        let r = ui.alloc((rows * 46.0).max(200.0));
         let cx = r.x + 92.0;
-        let cy = r.y + 100.0;
+        let cy = r.y + r.h * 0.5;
         ui.donut(cx, cy, 90.0, 54.0, &segs, true);
         let x = r.x + 200.0;
         let w = r.right() - x;
-        let mut entries: Vec<(String, String, Color)> =
-            vec![(world.classroom_name.clone(), "自塾".to_string(), t.accent)];
-        for c in &world.competitors {
-            entries.push((c.name.clone(), c.style.clone(), Color::rgb(c.color[0], c.color[1], c.color[2])));
-        }
-        for (i, (name, sub, color)) in entries.iter().enumerate() {
-            let y = r.y + 8.0 + i as f32 * 48.0;
-            ui.dl.circle(x + 8.0, y + 14.0, 7.0, *color);
+        for (i, (name, n, col, ours)) in shares.iter().enumerate() {
+            let color = if *ours { t.accent } else { Color::rgb(col[0], col[1], col[2]) };
+            let sub = if *ours {
+                format!("自塾・{n}人")
+            } else {
+                let style = world.competitors.iter().find(|c| &c.name == name).map(|c| c.style.label()).unwrap_or("");
+                format!("{style}・{n}人")
+            };
+            let y = r.y + 4.0 + i as f32 * 46.0;
+            ui.dl.circle(x + 8.0, y + 14.0, 7.0, color);
             let name = ui.fit_text(name, t.font_body, FontWeight::Bold, w - 22.0);
-            let sub = ui.fit_text(sub, t.font_small, FontWeight::Regular, w - 22.0);
+            let sub = ui.fit_text(&sub, t.font_small, FontWeight::Regular, w - 22.0);
             ui.text_in(
                 Rect::new(x + 22.0, y, w - 22.0, 22.0),
                 &name,
                 t.font_body,
                 FontWeight::Bold,
-                *color,
+                color,
                 Align::Left,
             );
             ui.text_in(
@@ -57,13 +63,55 @@ fn share(ui: &mut Ui, world: &World) {
     });
 }
 
-fn brand(ui: &mut Ui, world: &World) {
+/// 競合の動き（このエリアのものを優先して表示）。
+fn rivals(ui: &mut Ui, world: &World, ci: usize) {
     let t = ui.theme;
+    let area = world.classrooms[ci].area;
+    ui.heading("競合の動き");
+    let local: Vec<_> = world.rival_log.iter().filter(|m| m.area == area).take(5).collect();
+    let others: Vec<_> = world
+        .rival_log
+        .iter()
+        .filter(|m| m.area != area && world.classrooms.iter().any(|c| c.area == m.area))
+        .take(3)
+        .collect();
+    if local.is_empty() && others.is_empty() {
+        ui.caption("競合塾は 4 週ごとに状況を見て、値下げ・広告・出店・講師の引き抜きなどを仕掛けてきます。");
+        return;
+    }
+    ui.card(14.0, |ui| {
+        ui.set_spacing(8.0);
+        for m in local.iter().chain(others.iter()) {
+            let comp = &world.competitors[m.competitor];
+            let color = Color::rgb(comp.color[0], comp.color[1], comp.color[2]);
+            let r = ui.alloc(18.0);
+            ui.dl.circle(r.x + 5.0, r.y + 9.0, 5.0, color);
+            ui.text_in(
+                Rect::new(r.x + 16.0, r.y, r.w, 18.0),
+                &m.date.label(),
+                t.font_small,
+                FontWeight::Regular,
+                t.text_dim,
+                Align::Left,
+            );
+            ui.label(&m.text);
+        }
+    });
+}
+
+fn brand(ui: &mut Ui, world: &World, ci: usize) {
+    let t = ui.theme;
+    let awareness = world.classrooms[ci].awareness;
     ui.card(16.0, |ui| {
         ui.set_spacing(8.0);
         for (label, v, c, note) in [
-            ("ブランド力（合格実績）", world.brand, t.star, "毎年 2 月の入試結果で決まります"),
-            ("地域での認知度", world.awareness, t.series[4], "広告や説明会で上がり、何もしないと下がります"),
+            (
+                "ブランド力（会社全体の合格実績）",
+                world.brand,
+                t.star,
+                "毎年 2 月の入試結果で決まり、全教室の集客に効きます",
+            ),
+            ("この教室の地域での認知度", awareness, t.series[4], "広告や説明会で上がり、何もしないと下がります"),
         ] {
             let r = ui.alloc(22.0);
             ui.text_in(r, label, t.font_body, FontWeight::Bold, t.text, Align::Left);
@@ -75,10 +123,10 @@ fn brand(ui: &mut Ui, world: &World) {
     });
 }
 
-fn campaigns(ui: &mut Ui, world: &mut World) {
+fn campaigns(ui: &mut Ui, world: &mut World, ci: usize) {
     let t = ui.theme;
     ui.heading("集客・サービス施策");
-    let n = world.campaigns.len();
+    let n = world.classrooms[ci].campaigns.len();
     let mut i = 0;
     while i < n {
         let pair = [i, i + 1];
@@ -87,7 +135,7 @@ fn campaigns(ui: &mut Ui, world: &mut World) {
             if idx >= n {
                 return;
             }
-            let c = world.campaigns[idx].clone();
+            let c = world.classrooms[ci].campaigns[idx].clone();
             ui.card(14.0, |ui| {
                 ui.set_spacing(8.0);
                 let r = ui.alloc(64.0);
@@ -104,7 +152,7 @@ fn campaigns(ui: &mut Ui, world: &mut World) {
                 ui.label_ex(unit, t.font_small, FontWeight::Regular, t.text_dim, Align::Right);
                 let r = ui.alloc(40.0);
                 if let Some(v) = ui.toggle_at(Id::new("campaign").with(idx as u64), r, c.active) {
-                    world.set_campaign(idx, v);
+                    world.classroom_mut(ci).set_campaign(idx, v);
                 }
                 let status = if c.active { "実施中" } else { "未実施" };
                 let sc = if c.active { t.accent } else { t.text_dim };

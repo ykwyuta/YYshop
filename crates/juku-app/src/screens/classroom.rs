@@ -7,20 +7,20 @@ use juku_ui::{Align, ButtonStyle, Id, Ui};
 use crate::art;
 use crate::fmt::format_yen;
 
-pub fn draw(ui: &mut Ui, world: &mut World) {
-    reviews(ui, world);
-    concerns(ui, world);
-    manager(ui, world);
-    teachers(ui, world);
+pub fn draw(ui: &mut Ui, world: &mut World, ci: usize) {
+    reviews(ui, world, ci);
+    concerns(ui, world, ci);
+    manager(ui, world, ci);
+    teachers(ui, world, ci);
 }
 
-fn reviews(ui: &mut Ui, world: &World) {
+fn reviews(ui: &mut Ui, world: &World, ci: usize) {
     let t = ui.theme;
     ui.heading("保護者の口コミ");
     ui.card(18.0, |ui| {
         ui.set_spacing(10.0);
         let r = ui.alloc(128.0);
-        let overall = world.ratings.overall();
+        let overall = world.classrooms[ci].ratings.overall();
         ui.text_in(
             Rect::new(r.x, r.y, 140.0, 56.0),
             &format!("{overall:.1}"),
@@ -32,17 +32,17 @@ fn reviews(ui: &mut Ui, world: &World) {
         ui.stars_at(r.x, r.y + 62.0, 22.0, overall);
         ui.text_in(
             Rect::new(r.x, r.y + 92.0, 160.0, 24.0),
-            &format!("{} 件の口コミ", world.review_count),
+            &format!("{} 件の口コミ", world.classrooms[ci].review_count),
             t.font_body,
             FontWeight::Regular,
             t.text_dim,
             Align::Left,
         );
         let axes = [
-            ("料金", world.ratings.price),
-            ("授業", world.ratings.teaching),
-            ("面倒見", world.ratings.care),
-            ("安心・安全", world.ratings.safety),
+            ("料金", world.classrooms[ci].ratings.price),
+            ("授業", world.classrooms[ci].ratings.teaching),
+            ("面倒見", world.classrooms[ci].ratings.care),
+            ("安心・安全", world.classrooms[ci].ratings.safety),
         ];
         let right_x = r.x + r.w * 0.42;
         let rw = r.right() - right_x;
@@ -67,7 +67,7 @@ fn reviews(ui: &mut Ui, world: &World) {
             );
         }
     });
-    for rv in world.reviews.iter().take(3) {
+    for rv in world.classrooms[ci].reviews.iter().take(3) {
         ui.card(16.0, |ui| {
             ui.set_spacing(6.0);
             let r = ui.alloc(20.0);
@@ -77,14 +77,14 @@ fn reviews(ui: &mut Ui, world: &World) {
             ui.label(&rv.text);
         });
     }
-    if world.reviews.is_empty() {
+    if world.classrooms[ci].reviews.is_empty() {
         ui.caption("週を進めると、保護者の口コミが届きます。");
     }
 }
 
-fn concerns(ui: &mut Ui, world: &World) {
+fn concerns(ui: &mut Ui, world: &World, ci: usize) {
     let t = ui.theme;
-    let list = world.students_of_concern(4);
+    let list = world.classrooms[ci].students_of_concern(4);
     ui.heading("気になる生徒");
     if list.is_empty() {
         ui.caption("いまのところ、心配な生徒はいません。");
@@ -123,10 +123,10 @@ fn concerns(ui: &mut Ui, world: &World) {
     }
 }
 
-fn manager(ui: &mut Ui, world: &mut World) {
+fn manager(ui: &mut Ui, world: &mut World, ci: usize) {
     let t = ui.theme;
     ui.heading("教室長");
-    let m = world.manager.clone();
+    let m = world.classrooms[ci].manager.clone();
     ui.card(16.0, |ui| {
         ui.set_spacing(12.0);
         let r = ui.alloc(150.0);
@@ -156,22 +156,22 @@ fn manager(ui: &mut Ui, world: &mut World) {
         let r = ui.alloc(56.0);
         let d = ui.stepper_at(Id::new("manager-salary"), r, &format_yen(m.salary), None);
         if d != 0 {
-            world.set_manager_salary(m.salary + d as i64 * 500_000);
+            world.classroom_mut(ci).set_manager_salary(m.salary + d as i64 * 500_000);
         }
         ui.caption("教室長への業務委任");
         for (i, d) in Delegation::ALL.iter().enumerate() {
-            let on = world.manager.delegated(*d);
+            let on = world.classrooms[ci].manager.delegated(*d);
             if let Some(v) = ui.toggle_row(Id::new("delegation").with(i as u64), d.label(), on) {
-                world.set_delegation(*d, v);
+                world.classroom_mut(ci).set_delegation(*d, v);
             }
         }
         ui.caption("委任すると、教室長が自分の能力と倫理観で判断します。");
     });
 }
 
-fn teachers(ui: &mut Ui, world: &mut World) {
+fn teachers(ui: &mut Ui, world: &mut World, ci: usize) {
     let t = ui.theme;
-    let stats = world.classroom_stats();
+    let stats = world.stats(ci);
     ui.heading("講師");
     ui.card(16.0, |ui| {
         ui.set_spacing(8.0);
@@ -193,7 +193,7 @@ fn teachers(ui: &mut Ui, world: &mut World) {
     });
 
     let mut dismiss = None;
-    for tc in &world.teachers {
+    for tc in &world.classrooms[ci].teachers {
         ui.card(14.0, |ui| {
             ui.set_spacing(6.0);
             let r = ui.alloc(24.0);
@@ -215,13 +215,13 @@ fn teachers(ui: &mut Ui, world: &mut World) {
         });
     }
     if let Some(id) = dismiss {
-        world.dismiss_teacher(id);
+        world.classroom_mut(ci).dismiss_teacher(id);
     }
 
     ui.heading("採用候補");
     ui.caption("4 週ごとに候補が入れ替わります。");
     let mut hire = None;
-    for (i, c) in world.candidates.iter().enumerate() {
+    for (i, c) in world.classrooms[ci].candidates.iter().enumerate() {
         ui.card(14.0, |ui| {
             ui.set_spacing(6.0);
             let r = ui.alloc(24.0);
@@ -252,9 +252,9 @@ fn teachers(ui: &mut Ui, world: &mut World) {
         });
     }
     if let Some(i) = hire {
-        world.hire_candidate(i);
+        world.classroom_mut(ci).hire_candidate(i);
     }
-    if world.candidates.is_empty() {
+    if world.classrooms[ci].candidates.is_empty() {
         ui.caption("今月の候補はもういません。");
     }
 }

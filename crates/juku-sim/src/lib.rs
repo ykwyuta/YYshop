@@ -4,16 +4,23 @@
 //! Windows と WebAssembly で同じ操作をすれば同じ結果になる。
 
 pub mod calendar;
+pub mod classroom;
 pub mod data;
+mod gen;
+pub mod market;
+pub mod materials;
 pub mod model;
 pub mod report;
 pub mod rng;
 pub mod world;
 
 pub use calendar::{Calendar, Date, Season};
+pub use classroom::{Classroom, ClassroomStats};
+pub use market::{Area, Branch, Competitor, CompetitorStyle, RivalMove, RivalMoveKind};
+pub use materials::{MaterialSource, Materials};
 pub use model::*;
 pub use report::*;
-pub use world::{ClassroomStats, World, SAVE_VERSION};
+pub use world::{World, SAVE_VERSION};
 
 /// 金額を「¥1,234,567」形式で表示する。
 pub fn format_yen(v: Yen) -> String {

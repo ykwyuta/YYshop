@@ -1,5 +1,6 @@
 //! マスターデータ。塾名・学校名・人名はすべて架空。
 
+use crate::market::CompetitorStyle;
 use crate::model::{CampaignKind, SchoolTier};
 
 pub const SURNAMES: &[&str] = &[
@@ -71,50 +72,112 @@ pub const SCHOOLS: &[SchoolDef] = &[
 
 pub struct CompetitorDef {
     pub name: &'static str,
-    pub style: &'static str,
-    pub address: &'static str,
+    pub style: CompetitorStyle,
     pub brand: f64,
     pub quality: f64,
     pub care: f64,
     /// 学年別の月謝（4・5・6 年）
     pub fees: [i64; 3],
-    pub students: [u32; 3],
     pub color: [u8; 3],
+    /// 出店しているエリアと、そこでの在籍数（4・5・6 年）
+    pub branches: &'static [(usize, [u32; 3])],
 }
 
 pub const COMPETITORS: &[CompetitorDef] = &[
     CompetitorDef {
         name: "英峰ゼミナール",
-        style: "大手難関型",
-        address: "駅前1-2-3",
+        style: CompetitorStyle::Elite,
         brand: 0.80,
         quality: 0.72,
         care: 0.35,
         fees: [30_000, 46_000, 62_000],
-        students: [70, 75, 80],
         color: [0x4F, 0x8C, 0xF0],
+        branches: &[(0, [70, 75, 80]), (1, [90, 95, 100]), (4, [50, 55, 60])],
     },
     CompetitorDef {
         name: "ひだまり進学教室",
-        style: "面倒見型",
-        address: "本町3-5-8",
+        style: CompetitorStyle::Caring,
         brand: 0.45,
         quality: 0.55,
         care: 0.80,
         fees: [24_000, 37_000, 50_000],
-        students: [35, 35, 30],
         color: [0xF2, 0xB6, 0x3A],
+        branches: &[(0, [35, 35, 30]), (2, [40, 38, 32])],
     },
     CompetitorDef {
         name: "スタディリンク",
-        style: "格安オンライン型",
-        address: "オンライン",
+        style: CompetitorStyle::Online,
         brand: 0.30,
         quality: 0.45,
         care: 0.25,
         fees: [12_000, 18_000, 26_000],
-        students: [30, 25, 20],
         color: [0xA8, 0x6B, 0xE8],
+        branches: &[(0, [30, 25, 20]), (1, [30, 25, 20]), (2, [20, 18, 15]), (3, [15, 12, 10]), (4, [25, 22, 18])],
+    },
+    CompetitorDef {
+        name: "青嵐アカデミー",
+        style: CompetitorStyle::Individual,
+        brand: 0.40,
+        quality: 0.60,
+        care: 0.65,
+        fees: [32_000, 45_000, 58_000],
+        color: [0x41, 0xC6, 0xC0],
+        branches: &[(2, [20, 22, 25]), (4, [25, 28, 30])],
+    },
+];
+
+pub struct AreaDef {
+    pub name: &'static str,
+    pub address: &'static str,
+    pub description: &'static str,
+    /// 市場規模（入塾希望者数の倍率）
+    pub pool: f64,
+    /// 週あたりの家賃
+    pub rent: i64,
+    /// 開校費（敷金・内装・備品）
+    pub open_cost: i64,
+}
+
+pub const AREAS: &[AreaDef] = &[
+    AreaDef {
+        name: "けやき台",
+        address: "けやき台2-5-33",
+        description: "創業の地。大手と面倒見型がひしめく",
+        pool: 1.0,
+        rent: 120_000,
+        open_cost: 0,
+    },
+    AreaDef {
+        name: "桜ヶ丘",
+        address: "桜ヶ丘駅前1-8",
+        description: "教育熱心な家庭が多い人気エリア。英峰ゼミナールの牙城",
+        pool: 1.35,
+        rent: 170_000,
+        open_cost: 9_000_000,
+    },
+    AreaDef {
+        name: "港南",
+        address: "港南3-2-11",
+        description: "家賃が安く、面倒見型と個別指導が強い",
+        pool: 0.8,
+        rent: 90_000,
+        open_cost: 6_000_000,
+    },
+    AreaDef {
+        name: "緑町",
+        address: "緑町5-1-4",
+        description: "大手が手薄な住宅地。市場は小さめ",
+        pool: 0.7,
+        rent: 85_000,
+        open_cost: 5_500_000,
+    },
+    AreaDef {
+        name: "東雲",
+        address: "東雲ベイ2-3",
+        description: "タワーマンションが増える新興エリア",
+        pool: 1.15,
+        rent: 150_000,
+        open_cost: 8_000_000,
     },
 ];
 
@@ -166,4 +229,15 @@ pub const CAMPAIGNS: &[CampaignDef] = &[
     },
 ];
 
-pub const MANAGER_NAMES: &[&str] = &["真柴 恭介", "北条 さやか", "大野 健太郎", "早瀬 美咲"];
+pub const MANAGER_NAMES: &[&str] = &[
+    "真柴 恭介",
+    "北条 さやか",
+    "大野 健太郎",
+    "早瀬 美咲",
+    "柏木 涼",
+    "三上 理沙",
+    "相沢 拓海",
+    "桐島 奈央",
+    "久保田 誠",
+    "白石 遥香",
+];

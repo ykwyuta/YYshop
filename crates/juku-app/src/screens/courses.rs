@@ -6,9 +6,9 @@ use juku_ui::{Align, Id, Series, Ui};
 
 use crate::fmt::{format_signed, format_yen};
 
-pub fn draw(ui: &mut Ui, world: &mut World, segment: &mut usize) {
+pub fn draw(ui: &mut Ui, world: &mut World, ci: usize, segment: &mut usize) {
     let t = ui.theme;
-    trend(ui, world);
+    trend(ui, world, ci);
 
     ui.heading("指導方針");
     ui.card(16.0, |ui| {
@@ -16,10 +16,12 @@ pub fn draw(ui: &mut Ui, world: &mut World, segment: &mut usize) {
         ui.kv_row("宿題の量", "", None);
         let r = ui.alloc(56.0);
         let labels = ["とても少ない", "少なめ", "ふつう", "多め", "とても多い"];
-        let label = labels[(world.homework - 1) as usize];
-        let d = ui.stepper_at(Id::new("homework"), r, label, Some(&format!("レベル {}", world.homework)));
+        let label = labels[(world.classrooms[ci].homework - 1) as usize];
+        let d =
+            ui.stepper_at(Id::new("homework"), r, label, Some(&format!("レベル {}", world.classrooms[ci].homework)));
         if d != 0 {
-            world.set_homework((world.homework as i32 + d).clamp(1, 5) as u8);
+            let level = (world.classrooms[ci].homework as i32 + d).clamp(1, 5) as u8;
+            world.classroom_mut(ci).set_homework(level);
         }
         ui.caption("宿題を増やすと学力は伸びますが、ストレスがたまり退塾が増えます。");
     });
@@ -28,7 +30,7 @@ pub fn draw(ui: &mut Ui, world: &mut World, segment: &mut usize) {
     if let Some(i) = ui.segmented(&["学年別本科", "講習・特訓"], *segment) {
         *segment = i;
     }
-    let indices: Vec<usize> = world
+    let indices: Vec<usize> = world.classrooms[ci]
         .courses
         .iter()
         .enumerate()
@@ -36,18 +38,19 @@ pub fn draw(ui: &mut Ui, world: &mut World, segment: &mut usize) {
         .map(|(i, _)| i)
         .collect();
     for i in indices {
-        course_card(ui, world, i);
+        course_card(ui, world, ci, i);
     }
     let _ = t;
 }
 
-fn trend(ui: &mut Ui, world: &World) {
+fn trend(ui: &mut Ui, world: &World, ci: usize) {
+    let room = &world.classrooms[ci];
     let t = ui.theme;
-    let hist: Vec<_> = world.history.iter().rev().take(8).collect::<Vec<_>>().into_iter().rev().collect();
+    let hist: Vec<_> = room.history.iter().rev().take(8).collect::<Vec<_>>().into_iter().rev().collect();
     ui.card(16.0, |ui| {
         ui.set_spacing(8.0);
         let r = ui.alloc(60.0);
-        let total = world.students.len() as i64;
+        let total = room.students.len() as i64;
         let prev = hist.iter().rev().nth(1).map(|h| h.total_students() as i64).unwrap_or(total);
         let cols = [("4年", 4u8, t.series[0]), ("5年", 5, t.series[4]), ("6年", 6, t.series[1])];
         let cw = r.w / 4.0;
@@ -74,7 +77,7 @@ fn trend(ui: &mut Ui, world: &World) {
             ui.text_in(Rect::new(x, r.y, cw - 8.0, 18.0), label, t.font_small, FontWeight::Regular, *c, Align::Right);
             ui.text_in(
                 Rect::new(x, r.y + 18.0, cw - 8.0, 34.0),
-                &world.students_in_grade(*g).to_string(),
+                &room.students_in_grade(*g).to_string(),
                 24.0,
                 FontWeight::Bold,
                 *c,
@@ -97,10 +100,10 @@ fn trend(ui: &mut Ui, world: &World) {
     });
 }
 
-fn course_card(ui: &mut Ui, world: &mut World, index: usize) {
+fn course_card(ui: &mut Ui, world: &mut World, ci: usize, index: usize) {
     let t = ui.theme;
-    let c = world.courses[index].clone();
-    let unit_cost = world.course_unit_cost(c.kind);
+    let c = world.classrooms[ci].courses[index].clone();
+    let unit_cost = world.course_unit_cost(ci, c.kind);
     let (fee_label, monthly_fee) = match c.kind {
         CourseKind::Summer => ("受講料（総額）", c.fee as f64 / (6.0 * 12.0 / 52.0)),
         _ => ("月謝", c.fee as f64),
@@ -116,7 +119,7 @@ fn course_card(ui: &mut Ui, world: &mut World, index: usize) {
 
         let r = ui.alloc(46.0);
         if let Some(v) = ui.toggle_at(Id::new("course-enabled").with(index as u64), r, c.enabled) {
-            world.set_course_enabled(index, v);
+            world.classroom_mut(ci).set_course_enabled(index, v);
         }
         ui.text_in(
             Rect::new(r.x + 64.0, r.y, 120.0, r.h),
@@ -212,7 +215,7 @@ fn course_card(ui: &mut Ui, world: &mut World, index: usize) {
         let step = Rect::new(sx, r.y + 36.0, r.right() - sx, 54.0);
         let d = ui.stepper_at(Id::new("course-fee").with(index as u64), step, &format_yen(c.fee), None);
         if d != 0 {
-            world.set_course_fee(index, c.fee + d as i64 * c.fee_step());
+            world.classroom_mut(ci).set_course_fee(index, c.fee + d as i64 * c.fee_step());
         }
     });
 }

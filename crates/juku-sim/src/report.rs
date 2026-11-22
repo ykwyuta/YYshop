@@ -94,6 +94,8 @@ impl WeekReport {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ExamEntry {
     pub student_name: String,
+    /// 教室名
+    pub classroom: String,
     pub school: usize,
     pub passed: bool,
     pub first_choice: bool,
@@ -141,7 +143,7 @@ impl ExamResult {
 pub enum EventKind {
     HomeworkRequest,
     StrugglingSenior { student_id: u32 },
-    Poaching { teacher_id: u32 },
+    Poaching { teacher_id: u32, competitor: usize },
     ResultPadding,
 }
 
@@ -149,6 +151,8 @@ pub enum EventKind {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct GameEvent {
     pub kind: EventKind,
+    /// 対象の教室（`World::classrooms` の添字）。会社全体の判断なら None
+    pub classroom: Option<usize>,
     pub title: String,
     pub body: String,
     pub choice_a: String,
@@ -159,4 +163,63 @@ pub struct GameEvent {
 pub enum Choice {
     A,
     B,
+}
+
+/// 本部（会社全体）の週次費用。
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct HqCosts {
+    /// 教材の開発費
+    pub development: Yen,
+    /// 自社教材の立ち上げ費
+    pub launch: Yen,
+    /// 新規開校費
+    pub opening: Yen,
+    /// 本部の運営費（2 教室目から）
+    pub overhead: Yen,
+}
+
+impl HqCosts {
+    pub fn lines(&self) -> [(&'static str, Yen); 4] {
+        [
+            ("教材開発費", self.development),
+            ("自社教材の立ち上げ", self.launch),
+            ("開校費", self.opening),
+            ("本部運営費", self.overhead),
+        ]
+    }
+
+    pub fn total(&self) -> Yen {
+        self.development + self.launch + self.opening + self.overhead
+    }
+}
+
+/// 会社全体の週次レポート。
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CompanyWeek {
+    pub date: Date,
+    pub school_year: i32,
+    pub week: u32,
+    /// 教室ごとの（教室名, 売上, 純利益, 在籍数）
+    pub classrooms: Vec<(String, Yen, Yen, u32)>,
+    pub hq: HqCosts,
+    pub cash: Yen,
+    pub news: Vec<String>,
+}
+
+impl CompanyWeek {
+    pub fn revenue(&self) -> Yen {
+        self.classrooms.iter().map(|c| c.1).sum()
+    }
+
+    pub fn classroom_net(&self) -> Yen {
+        self.classrooms.iter().map(|c| c.2).sum()
+    }
+
+    pub fn net(&self) -> Yen {
+        self.classroom_net() - self.hq.total()
+    }
+
+    pub fn students(&self) -> u32 {
+        self.classrooms.iter().map(|c| c.3).sum()
+    }
 }

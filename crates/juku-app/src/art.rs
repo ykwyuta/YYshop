@@ -54,12 +54,18 @@ pub fn tab_icon(ui: &mut Ui, tab: Tab, r: Rect, c: Color) {
             }
             dl.rect(Rect::new(cx - 16.0, cy + 12.0, 32.0, 2.0), c, 1.0);
         }
-        Tab::Year => {
-            dl.rect_border(Rect::new(cx - 13.0, cy - 10.0, 26.0, 22.0), Color::TRANSPARENT, 4.0, 2.5, c);
-            dl.rect(Rect::new(cx - 13.0, cy - 10.0, 26.0, 7.0), c, 3.0);
+        Tab::Hq => {
+            // 本部ビル
+            dl.rect(Rect::new(cx - 9.0, cy - 12.0, 18.0, 25.0), c, 2.0);
+            dl.rect(Rect::new(cx - 16.0, cy - 2.0, 7.0, 15.0), c, 1.5);
+            dl.rect(Rect::new(cx + 9.0, cy - 2.0, 7.0, 15.0), c, 1.5);
             for k in 0..3 {
-                dl.circle(cx - 7.0 + k as f32 * 7.0, cy + 4.0, 2.0, c);
+                let y = cy - 8.0 + k as f32 * 6.0;
+                dl.rect(Rect::new(cx - 5.0, y, 3.5, 3.5), ui.theme.bar, 0.5);
+                dl.rect(Rect::new(cx + 1.5, y, 3.5, 3.5), ui.theme.bar, 0.5);
             }
+            dl.line(cx, cy - 12.0, cx, cy - 18.0, 1.5, c);
+            dl.rect(Rect::new(cx, cy - 18.0, 6.0, 4.0), c, 0.5);
         }
     }
 }

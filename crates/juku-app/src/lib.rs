@@ -21,11 +21,11 @@ pub enum Tab {
     Courses,
     Marketing,
     Accounting,
-    Year,
+    Hq,
 }
 
 impl Tab {
-    const ALL: [Tab; 5] = [Tab::Classroom, Tab::Courses, Tab::Marketing, Tab::Accounting, Tab::Year];
+    const ALL: [Tab; 5] = [Tab::Classroom, Tab::Courses, Tab::Marketing, Tab::Accounting, Tab::Hq];
 
     fn label(self) -> &'static str {
         match self {
@@ -33,7 +33,7 @@ impl Tab {
             Tab::Courses => "コース",
             Tab::Marketing => "集客",
             Tab::Accounting => "経理",
-            Tab::Year => "年度",
+            Tab::Hq => "本部",
         }
     }
 }
@@ -42,8 +42,14 @@ pub struct GameApp {
     world: Option<World>,
     has_save: bool,
     tab: Tab,
+    /// 表示中の教室（World::classrooms の添字）
+    selected: usize,
     /// コース画面のセグメント（0 = 本科, 1 = 講習・特訓）
     course_segment: usize,
+    /// 経理画面のセグメント（0 = 教室, 1 = 全社）
+    accounting_segment: usize,
+    /// 開校するエリア（教室長を選ぶモーダルを表示中）
+    opening_area: Option<usize>,
     /// 表示中の入試結果（exam_results の添字）
     exam_view: Option<usize>,
     toast: Option<(String, f64)>,
@@ -62,7 +68,10 @@ impl GameApp {
             world: None,
             has_save,
             tab: Tab::Classroom,
+            selected: 0,
             course_segment: 0,
+            accounting_segment: 0,
+            opening_area: None,
             exam_view: None,
             toast: None,
             confirm_new_game: false,
@@ -90,6 +99,7 @@ impl GameApp {
         match w {
             Some(w) if w.save_version == juku_sim::SAVE_VERSION => {
                 self.world = Some(w);
+                self.selected = 0;
                 true
             }
             _ => false,
@@ -101,6 +111,7 @@ impl GameApp {
         let seed = (time * 1000.0) as u64 ^ self.seed_counter.wrapping_mul(0x9E37_79B9);
         self.world = Some(World::new(seed));
         self.tab = Tab::Classroom;
+        self.selected = 0;
     }
 
     fn show_toast(&mut self, msg: impl Into<String>, now: f64) {
@@ -147,53 +158,63 @@ impl App for GameApp {
                 || world.unseen_exam_result
                 || self.exam_view.is_some()
                 || self.confirm_new_game
+                || self.opening_area.is_some()
         };
+        let n_classrooms = self.world.as_ref().unwrap().classrooms.len();
+        self.selected = self.selected.min(n_classrooms - 1);
+        let ci = self.selected;
         ui.input_enabled = !modal_open;
 
         let viewport = Rect::new(x0, s.y + HEADER_H, w, s.h - HEADER_H - TAB_H);
         let tab = self.tab;
-        let id = Id::new("tab-scroll").with(tab as u64);
+        // 本部タブは会社全体、それ以外は教室ごとにスクロール位置を覚える
+        let id = Id::new("tab-scroll").with(tab as u64).with(if tab == Tab::Hq { 0 } else { ci as u64 + 1 });
         {
             let world = self.world.as_mut().unwrap();
             let seg = &mut self.course_segment;
-            let exam_view = &mut self.exam_view;
-            let mut request_new_game = false;
-            let mut request_save = false;
+            let acc_seg = &mut self.accounting_segment;
+            let mut hq_action = None;
             ui.scroll_area(id, viewport, 0.0, |ui| {
                 ui.padded(16.0, 18.0, |ui| {
                     ui.set_spacing(16.0);
                     match tab {
-                        Tab::Classroom => screens::classroom::draw(ui, world),
-                        Tab::Courses => screens::courses::draw(ui, world, seg),
-                        Tab::Marketing => screens::marketing::draw(ui, world),
-                        Tab::Accounting => screens::accounting::draw(ui, world),
-                        Tab::Year => match screens::year::draw(ui, world) {
-                            Some(screens::year::YearAction::ShowExam(i)) => *exam_view = Some(i),
-                            Some(screens::year::YearAction::NewGame) => request_new_game = true,
-                            Some(screens::year::YearAction::Save) => request_save = true,
-                            None => {}
-                        },
+                        Tab::Classroom => screens::classroom::draw(ui, world, ci),
+                        Tab::Courses => screens::courses::draw(ui, world, ci, seg),
+                        Tab::Marketing => screens::marketing::draw(ui, world, ci),
+                        Tab::Accounting => screens::accounting::draw(ui, world, ci, acc_seg),
+                        Tab::Hq => hq_action = screens::hq::draw(ui, world),
                     }
                 });
             });
-            if request_new_game {
-                self.confirm_new_game = true;
-            }
-            if request_save {
-                self.save(ctx);
-                let now = ui.input.time;
-                self.show_toast("保存しました", now);
+            let now = ui.input.time;
+            match hq_action {
+                Some(screens::hq::HqAction::ShowExam(i)) => self.exam_view = Some(i),
+                Some(screens::hq::HqAction::NewGame) => self.confirm_new_game = true,
+                Some(screens::hq::HqAction::Save) => {
+                    self.save(ctx);
+                    self.show_toast("保存しました", now);
+                }
+                Some(screens::hq::HqAction::Select(i)) => {
+                    self.selected = i;
+                    self.tab = Tab::Classroom;
+                }
+                Some(screens::hq::HqAction::Open(area)) => self.opening_area = Some(area),
+                Some(screens::hq::HqAction::Toast(msg)) => self.show_toast(msg, now),
+                None => {}
             }
         }
 
         // ヘッダー
         let header = Rect::new(x0, s.y, w, HEADER_H);
-        let stepped = {
+        let (stepped, switch) = {
             let world = self.world.as_mut().unwrap();
-            screens::header::draw(ui, header, world)
+            screens::header::draw(ui, header, world, ci)
         };
         if stepped {
             self.save(ctx);
+        }
+        if let Some(next) = switch {
+            self.selected = next;
         }
 
         // タブバー
@@ -206,7 +227,8 @@ impl App for GameApp {
         ui.input_enabled = true;
         let world = self.world.as_mut().unwrap();
         if let Some(ev) = world.pending_event.clone() {
-            if let Some(choice) = screens::modals::event(ui, &ev) {
+            let cname = ev.classroom.and_then(|i| world.classrooms.get(i)).map(|c| c.name.clone());
+            if let Some(choice) = screens::modals::event(ui, &ev, cname.as_deref()) {
                 world.resolve_event(choice);
                 if choice == Choice::A || choice == Choice::B {
                     self.save(ctx);
@@ -221,6 +243,27 @@ impl App for GameApp {
         } else if let Some(idx) = self.exam_view {
             if screens::modals::exam(ui, world, idx) {
                 self.exam_view = None;
+            }
+        } else if let Some(area) = self.opening_area {
+            match screens::modals::open_classroom(ui, world, area) {
+                Some(Some(manager)) => match world.open_classroom(area, manager) {
+                    Ok(new_ci) => {
+                        self.opening_area = None;
+                        self.selected = new_ci;
+                        self.tab = Tab::Classroom;
+                        let name = world.classrooms[new_ci].name.clone();
+                        self.save(ctx);
+                        let now = ui.input.time;
+                        self.show_toast(format!("{name}を開校しました"), now);
+                    }
+                    Err(e) => {
+                        self.opening_area = None;
+                        let now = ui.input.time;
+                        self.show_toast(e, now);
+                    }
+                },
+                Some(None) => self.opening_area = None,
+                None => {}
             }
         } else if self.confirm_new_game {
             match screens::modals::confirm(
