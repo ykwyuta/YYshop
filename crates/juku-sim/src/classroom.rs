@@ -874,8 +874,11 @@ pub(crate) fn distribute_area_demand(
                 continue;
             }
             let gain = rng.round_stochastic(pool * comp_w[ci] / total * 0.65);
+            let cap = c.style.branch_capacity();
             if let Some(b) = c.branch_mut(area_idx) {
-                b.students[gi] += gain;
+                // 教室の広さ・講師の数には限りがある
+                let room = cap.saturating_sub(b.total());
+                b.students[gi] += gain.min(room);
             }
         }
     }

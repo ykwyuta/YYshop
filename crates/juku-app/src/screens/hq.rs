@@ -23,11 +23,15 @@ pub enum HqAction {
     Confirm(crate::Confirm),
     /// スター講師への声かけ（競合, 講師）
     Star(usize, usize),
+    /// 秘書の自動報告を切り替える
+    AutoReport(bool),
+    /// チュートリアルをもう一度
+    Tutorial,
 }
 
 pub const SECTIONS: [&str; 4] = ["経営", "財務・上場", "人材・教材", "その他"];
 
-pub fn draw(ui: &mut Ui, world: &mut World, is_web: bool, section: &mut usize) -> Option<HqAction> {
+pub fn draw(ui: &mut Ui, world: &mut World, is_web: bool, section: &mut usize, auto_report: bool) -> Option<HqAction> {
     let mut action = None;
     if let Some(i) = ui.segmented(&SECTIONS, *section) {
         *section = i;
@@ -48,12 +52,12 @@ pub fn draw(ui: &mut Ui, world: &mut World, is_web: bool, section: &mut usize) -
             materials_section(ui, world, &mut action);
             sales_section(ui, world, &mut action);
         }
-        _ => others(ui, world, is_web, &mut action),
+        _ => others(ui, world, is_web, auto_report, &mut action),
     }
     action
 }
 
-fn others(ui: &mut Ui, world: &mut World, is_web: bool, out: &mut Option<HqAction>) {
+fn others(ui: &mut Ui, world: &mut World, is_web: bool, auto_report: bool, out: &mut Option<HqAction>) {
     let t = ui.theme;
     let mut action = None;
 
@@ -154,6 +158,19 @@ fn others(ui: &mut Ui, world: &mut World, is_web: bool, out: &mut Option<HqActio
         if ui.button("新しいゲームを始める", ButtonStyle::Secondary) {
             action = Some(HqAction::NewGame);
         }
+    });
+    ui.heading("秘書");
+    ui.card(16.0, |ui| {
+        ui.set_spacing(8.0);
+        if let Some(v) =
+            ui.toggle_row(Id::new("auto-report"), "週を進めたとき、新しいことを報告してもらう", auto_report)
+        {
+            action = Some(HqAction::AutoReport(v));
+        }
+        ui.caption(&format!(
+            "秘書の{}が、競合の動きや教室の問題を見つけるとお知らせします。いつでも画面上の「秘書」ボタンで呼べます。",
+            crate::screens::secretary::NAME
+        ));
     });
     help(ui, is_web, &mut action);
     if action.is_some() {

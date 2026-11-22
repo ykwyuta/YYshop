@@ -128,6 +128,18 @@ impl CompetitorStyle {
         )
     }
 
+    /// 1 教室あたりの在籍数の上限（これを超えると新しい生徒を受け入れない）。
+    pub fn branch_capacity(self) -> u32 {
+        match self {
+            CompetitorStyle::Elite => 400,
+            CompetitorStyle::Caring => 200,
+            CompetitorStyle::Online => 300,
+            CompetitorStyle::Individual => 180,
+            CompetitorStyle::Independent => 40,
+            CompetitorStyle::SmallChain => 110,
+        }
+    }
+
     /// 撤退を考え始める在籍数。
     fn weak_threshold(self) -> u32 {
         if self.is_major() {
@@ -425,10 +437,14 @@ pub fn competitor_turn(
             competitors[ci].branches.remove(bi);
         }
 
+        // 売りに出していた塾が、買い手がつかずに売却を取りやめることがある
+        if competitors[ci].for_sale && rng.chance(0.06) {
+            competitors[ci].for_sale = false;
+        }
         // 個人塾・中小塾は、後継者不足や経営難で売りに出ることがある
         if !style.is_major() && !competitors[ci].for_sale && !competitors[ci].branches.is_empty() {
             let weak = competitors[ci].branches.iter().any(|b| b.weak_months > 0);
-            if rng.chance(if weak { 0.15 } else { 0.03 }) {
+            if rng.chance(if weak { 0.12 } else { 0.015 }) {
                 competitors[ci].for_sale = true;
                 let area = competitors[ci].branches[0].area;
                 let reason = if style == CompetitorStyle::Independent {

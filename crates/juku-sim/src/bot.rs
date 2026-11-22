@@ -238,9 +238,14 @@ fn act(w: &mut World, strategy: Strategy, week: u32) {
         return;
     }
     let aggressive = strategy == Strategy::Aggressive;
-    let reserve: Yen = if aggressive { 5_000_000 } else { 8_000_000 };
+    // 教室が増えるほど、手元に残しておく資金も増やす
+    let per_room: Yen = if aggressive { 2_000_000 } else { 3_000_000 };
+    let reserve: Yen = (if aggressive { 5_000_000 } else { 8_000_000 }) + per_room * w.classrooms.len() as Yen;
+    // 会社が赤字の間は広げない（堅実な成長）
+    let recent_net: Yen = w.history.iter().rev().take(13).map(|h| h.net()).sum();
+    let healthy = w.history.len() < 26 || recent_net > 0 || aggressive;
     // 資金が尽きそうなら借りてしのぐ
-    if aggressive && w.cash < 1_000_000 {
+    if w.cash < 1_000_000 {
         let need = 5_000_000.min(w.credit_limit());
         if need >= crate::corporate::LOAN_MIN {
             let _ = w.borrow(need, 5);
@@ -251,12 +256,17 @@ fn act(w: &mut World, strategy: Strategy, week: u32) {
     if week % 4 != 1 {
         return;
     }
-    let can_open = week % 13 == 1 || !aggressive;
-    // 買収
-    for comp in w.acquisition_targets() {
-        let price = w.acquisition_price(comp);
-        if w.cash > price + reserve {
-            let _ = w.acquire(comp);
+    let can_open = healthy && (week % 13 == 1 || !aggressive);
+    // 買収：自塾の教室に統合できるか、単独でもやっていける規模（30 人以上）の塾だけ
+    if healthy {
+        for comp in w.acquisition_targets() {
+            let c = &w.competitors[comp];
+            let viable =
+                c.branches.iter().all(|b| b.total() >= 30 || w.classrooms.iter().any(|room| room.area == b.area));
+            let price = w.acquisition_price(comp);
+            if viable && w.cash > price + reserve {
+                let _ = w.acquire(comp);
+            }
         }
     }
     // 開校（安いエリアから）

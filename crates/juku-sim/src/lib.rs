@@ -3,6 +3,7 @@
 //! このクレートは描画・OS・時刻に一切依存しない。乱数はシードから決定論的に生成するため、
 //! Windows と WebAssembly で同じ操作をすれば同じ結果になる。
 
+pub mod advisor;
 pub mod bot;
 pub mod calendar;
 pub mod classroom;

@@ -12,6 +12,11 @@ pub struct Date {
 }
 
 impl Date {
+    /// 日付の前後を比べるための通し番号（日数ではない）。
+    pub fn ordinal(&self) -> i64 {
+        self.year as i64 * 512 + self.month as i64 * 32 + self.day as i64
+    }
+
     pub fn label(&self) -> String {
         format!("{}年{}月{}日", self.year, self.month, self.day)
     }

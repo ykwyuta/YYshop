@@ -5,4 +5,5 @@ pub mod header;
 pub mod hq;
 pub mod marketing;
 pub mod modals;
+pub mod secretary;
 pub mod title;
