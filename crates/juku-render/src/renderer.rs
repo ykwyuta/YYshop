@@ -29,7 +29,7 @@ impl Renderer {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         format: wgpu::TextureFormat,
-        sprite_atlas_png: Option<&[u8]>,
+        sprite_atlas_pngs: &[&[u8]],
     ) -> Result<Self, String> {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("juku-render shader"),
@@ -59,7 +59,7 @@ impl Renderer {
             min_filter: wgpu::FilterMode::Nearest,
             ..Default::default()
         });
-        let sprites = Self::load_sprites(device, queue, sprite_atlas_png)?;
+        let sprites = Self::load_sprites(device, queue, sprite_atlas_pngs)?;
         let sprite_view = sprites.create_view(&wgpu::TextureViewDescriptor::default());
         let sprite_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("sprite sampler"),
@@ -181,25 +181,39 @@ impl Renderer {
         })
     }
 
-    fn load_sprites(device: &wgpu::Device, queue: &wgpu::Queue, png: Option<&[u8]>) -> Result<wgpu::Texture, String> {
-        let (width, height, pixels) = if let Some(bytes) = png {
-            let mut decoder = png::Decoder::new(std::io::Cursor::new(bytes));
-            decoder.set_transformations(png::Transformations::normalize_to_color8());
-            let mut reader = decoder.read_info().map_err(|e| format!("sprite atlas: {e}"))?;
-            let mut pixels = vec![0; reader.output_buffer_size().ok_or("sprite atlas too large")?];
-            let info = reader.next_frame(&mut pixels).map_err(|e| format!("sprite atlas: {e}"))?;
-            pixels.truncate(info.buffer_size());
-            let pixels = match info.color_type {
-                png::ColorType::Rgba => pixels,
-                png::ColorType::Rgb => pixels.chunks_exact(3).flat_map(|c| [c[0], c[1], c[2], 255]).collect(),
-                _ => return Err("sprite atlas must be RGB or RGBA".into()),
-            };
-            (info.width, info.height, pixels)
-        } else {
-            (1, 1, vec![0; 4])
+    fn decode_sprite_png(bytes: &[u8]) -> Result<(u32, u32, Vec<u8>), String> {
+        let mut decoder = png::Decoder::new(std::io::Cursor::new(bytes));
+        decoder.set_transformations(png::Transformations::normalize_to_color8());
+        let mut reader = decoder.read_info().map_err(|e| format!("sprite atlas: {e}"))?;
+        let mut pixels = vec![0; reader.output_buffer_size().ok_or("sprite atlas too large")?];
+        let info = reader.next_frame(&mut pixels).map_err(|e| format!("sprite atlas: {e}"))?;
+        pixels.truncate(info.buffer_size());
+        let pixels = match info.color_type {
+            png::ColorType::Rgba => pixels,
+            png::ColorType::Rgb => pixels.chunks_exact(3).flat_map(|c| [c[0], c[1], c[2], 255]).collect(),
+            _ => return Err("sprite atlas must be RGB or RGBA".into()),
         };
-        if width.max(height) > device.limits().max_texture_dimension_2d {
+        Ok((info.width, info.height, pixels))
+    }
+
+    fn load_sprites(device: &wgpu::Device, queue: &wgpu::Queue, pngs: &[&[u8]]) -> Result<wgpu::Texture, String> {
+        let mut pngs = pngs.iter();
+        let (width, mut height, mut pixels) =
+            if let Some(first) = pngs.next() { Self::decode_sprite_png(first)? } else { (1, 1, vec![0; 4]) };
+        let limit = device.limits().max_texture_dimension_2d;
+        if width.max(height) > limit {
             return Err("sprite atlas exceeds device texture limits".into());
+        }
+        for bytes in pngs {
+            let (strip_width, strip_height, strip_pixels) = Self::decode_sprite_png(bytes)?;
+            if strip_width != width {
+                return Err("sprite atlas PNGs must have the same width".into());
+            }
+            height = height
+                .checked_add(strip_height)
+                .filter(|&height| height <= limit)
+                .ok_or("sprite atlas exceeds device texture limits")?;
+            pixels.extend(strip_pixels);
         }
         Ok(device.create_texture_with_data(
             queue,

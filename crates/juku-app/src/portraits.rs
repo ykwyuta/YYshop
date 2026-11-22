@@ -4,15 +4,21 @@ use juku_render::Rect;
 use juku_sim::{Manager, Student, Teacher, World};
 use juku_ui::{Id, Ui};
 
-pub const ATLAS_PNG: &[u8] = include_bytes!("../../../assets/portraits/portraits.png");
+pub const ATLAS_PNGS: &[&[u8]] = &[
+    include_bytes!("../../../assets/portraits/portraits.png"),
+    include_bytes!("../../../assets/portraits/teachers.png"),
+];
 
 const VARIANTS: usize = 20;
+const EXTRA_TEACHERS: usize = 30;
 const EXPRESSIONS: usize = 5;
 const TILE_PX: f32 = 96.0;
 const SECRETARY_PX: f32 = 192.0;
 const SECRETARY_Y: f32 = TILE_PX * (3 * EXPRESSIONS) as f32;
+const EXTRA_TEACHER_Y: f32 = SECRETARY_Y + SECRETARY_PX;
+const EXTRA_TEACHER_PX: f32 = 64.0;
 const ATLAS_W: f32 = TILE_PX * VARIANTS as f32;
-const ATLAS_H: f32 = SECRETARY_Y + SECRETARY_PX;
+const ATLAS_H: f32 = EXTRA_TEACHER_Y + EXTRA_TEACHER_PX * EXPRESSIONS as f32;
 
 #[derive(Clone, Copy)]
 enum Role {
@@ -41,7 +47,11 @@ pub struct Portrait {
 impl Portrait {
     fn new(role: Role, id: Id, expression: Expression) -> Self {
         let mixed = id.0 ^ (id.0 >> 32);
-        Self { role, variant: (mixed % VARIANTS as u64) as usize, expression }
+        let variants = match role {
+            Role::Teacher => VARIANTS + EXTRA_TEACHERS,
+            _ => VARIANTS,
+        };
+        Self { role, variant: (mixed % variants as u64) as usize, expression }
     }
 
     pub fn student(s: &Student) -> Self {
@@ -92,12 +102,18 @@ impl Portrait {
         let (cx, cy) = bounds.center();
         let r = Rect::new(cx - size * 0.5, cy - size * 0.5, size, size);
         let expression = self.expression as usize;
-        let (x, y, tile) = if matches!(self.role, Role::Secretary) {
-            (expression as f32 * SECRETARY_PX, SECRETARY_Y, SECRETARY_PX)
-        } else {
-            let x = self.variant as f32 * TILE_PX;
-            let y = (self.role as usize * EXPRESSIONS + expression) as f32 * TILE_PX;
-            (x, y, TILE_PX)
+        let (x, y, tile) = match self.role {
+            Role::Secretary => (expression as f32 * SECRETARY_PX, SECRETARY_Y, SECRETARY_PX),
+            Role::Teacher if self.variant >= VARIANTS => (
+                (self.variant - VARIANTS) as f32 * EXTRA_TEACHER_PX,
+                EXTRA_TEACHER_Y + expression as f32 * EXTRA_TEACHER_PX,
+                EXTRA_TEACHER_PX,
+            ),
+            _ => {
+                let x = self.variant as f32 * TILE_PX;
+                let y = (self.role as usize * EXPRESSIONS + expression) as f32 * TILE_PX;
+                (x, y, TILE_PX)
+            }
         };
         // 線形補間で隣のコマの色が混ざらないよう、端の画素の中心までを使う。
         let uv = [(x + 0.5) / ATLAS_W, (y + 0.5) / ATLAS_H, (x + tile - 0.5) / ATLAS_W, (y + tile - 0.5) / ATLAS_H];
