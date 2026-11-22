@@ -22,6 +22,9 @@ pub struct Area {
     pub open_cost: Yen,
     /// 物件を買い取る場合の価格（年 2% ずつ上がる）
     pub property_price: Yen,
+    /// 市場規模の年間の伸び
+    #[serde(default)]
+    pub pool_growth: f64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -207,10 +210,10 @@ impl Competitor {
     /// 学年 `gi`（0..3）での魅力度。
     pub fn attractiveness(&self, branch: &Branch, gi: usize) -> f64 {
         0.30 * self.brand
-            + 0.25 * self.quality
-            + 0.15 * self.care
-            + 0.20 * price_score(branch.fees[gi], data::REFERENCE_FEES[gi])
-            + 0.10 * branch.awareness
+            + 0.28 * self.quality
+            + 0.16 * self.care
+            + 0.14 * price_score(branch.fees[gi], data::REFERENCE_FEES[gi])
+            + 0.12 * branch.awareness
     }
 }
 
@@ -487,6 +490,7 @@ mod tests {
                 rent: a.rent,
                 open_cost: a.open_cost,
                 property_price: a.property_price,
+                pool_growth: a.pool_growth,
             })
             .collect();
         (comps, areas)

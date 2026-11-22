@@ -14,7 +14,13 @@ use crate::rng::Rng;
 
 pub const SAVE_VERSION: u32 = 3;
 /// 2 教室目からかかる本部の運営費（教室ごと・週）。
-const HQ_OVERHEAD_PER_EXTRA_CLASSROOM: Yen = 40_000;
+const HQ_OVERHEAD_PER_EXTRA_CLASSROOM: Yen = 60_000;
+/// 資金がマイナスのときの当座貸越の年利。
+const OVERDRAFT_RATE: f64 = 0.12;
+/// この週数だけ資金がマイナスのままだと倒産する。
+pub const BANKRUPTCY_WEEKS: u32 = 26;
+/// 資金がこれを下回ると即座に倒産する。
+pub const BANKRUPTCY_FLOOR: Yen = -30_000_000;
 const MAX_RIVAL_LOG: usize = 40;
 
 /// ロジスティック関数の代わり（超越関数を使わない）。x=0 で 0.5。
@@ -55,6 +61,9 @@ pub struct World {
     pub loans: Vec<crate::finance::Loan>,
     /// 資金がマイナスの週が続いている数
     pub negative_weeks: u32,
+    /// 倒産した（ゲームオーバー）
+    #[serde(default)]
+    pub bankrupt: bool,
     pub(crate) next_id: u32,
     weeks_since_event: u32,
 }
@@ -78,6 +87,7 @@ impl World {
                 rent: a.rent,
                 open_cost: a.open_cost,
                 property_price: a.property_price,
+                pool_growth: a.pool_growth,
             })
             .collect();
         let mut competitors: Vec<Competitor> = data::COMPETITORS.iter().map(Competitor::from_def).collect();
@@ -109,7 +119,7 @@ impl World {
         first.review_count = 128;
         first.ratings = Ratings { price: 3.4, teaching: 3.3, care: 3.4, safety: 3.2 };
         first.teachers.push(gen::make_teacher(&mut rng, &mut next_id, TeacherKind::Pro));
-        for _ in 0..4 {
+        for _ in 0..6 {
             first.teachers.push(gen::make_teacher(&mut rng, &mut next_id, TeacherKind::Student));
         }
         for (grade, n) in [(4u8, 22), (5, 24), (6, 20)] {
@@ -155,6 +165,7 @@ impl World {
             pending_flows: Default::default(),
             loans: Vec::new(),
             negative_weeks: 0,
+            bankrupt: false,
             next_id,
             weeks_since_event: 0,
         };
@@ -292,7 +303,7 @@ impl World {
             }
         }
         // 開校すると地域でそれなりに話題になる
-        c.awareness = 0.25 + 0.2 * self.brand;
+        c.awareness = 0.35 + 0.25 * self.brand;
         self.classrooms.push(c);
         if self.manager_candidates.is_empty() {
             self.refresh_manager_candidates();
@@ -338,8 +349,10 @@ impl World {
             }
             (EventKind::Poaching { teacher_id, .. }, Choice::A) => {
                 if let Some(t) = self.classrooms[ci].teachers.iter_mut().find(|t| t.id == teacher_id) {
-                    t.pay = t.pay * 6 / 5;
+                    t.raise_pay();
                     t.fatigue = (t.fatigue - 0.2).max(0.0);
+                    // 引き止めた講師は 1 年間は他塾の誘いに乗らない
+                    t.loyal_weeks = 52;
                 }
             }
             (EventKind::Poaching { teacher_id, competitor }, Choice::B) => {
@@ -367,7 +380,7 @@ impl World {
 
     /// 1 週進める。判断待ちのイベントがある場合は進めない（false を返す）。
     pub fn step_week(&mut self) -> bool {
-        if self.pending_event.is_some() {
+        if self.pending_event.is_some() || self.bankrupt {
             return false;
         }
         let calendar = self.calendar;
@@ -448,14 +461,25 @@ impl World {
             self.run_competitors(&mut company_news);
         }
 
-        // --- 資金ショート ---
+        // --- 資金ショート：当座貸越の利息、信頼の低下、倒産 ---
         if self.cash < 0 {
+            let overdraft = (-self.cash as f64 * OVERDRAFT_RATE / 52.0) as Yen;
+            self.cash -= overdraft;
+            hq.interest += overdraft;
             self.negative_weeks += 1;
             self.trust = (self.trust - 0.01).max(0.0);
-            company_news.push(format!(
-                "資金がマイナスです（{}週目）。取引先や保護者の信頼が下がっています。融資や経費削減を検討してください",
-                self.negative_weeks
-            ));
+            if self.negative_weeks >= BANKRUPTCY_WEEKS || self.cash < BANKRUPTCY_FLOOR {
+                self.bankrupt = true;
+                company_news.insert(0, "資金繰りがつかず、会社は倒産しました".into());
+            } else {
+                company_news.insert(
+                    0,
+                    format!(
+                        "資金がマイナスです（{}週目／{}週で倒産）。融資や経費削減を検討してください",
+                        self.negative_weeks, BANKRUPTCY_WEEKS
+                    ),
+                );
+            }
         } else {
             self.negative_weeks = 0;
         }
@@ -494,6 +518,10 @@ impl World {
         if calendar.week.is_multiple_of(8) {
             self.refresh_manager_candidates();
         }
+        // 9 月：夏を越えて伸びた 6 年生は志望校を上げる
+        if calendar.season() == Season::Autumn && prev_calendar.map(|p| p.season()) == Some(Season::Summer) {
+            self.review_targets(false);
+        }
 
         // --- 暦を進める ---
         if self.calendar.advance() {
@@ -501,6 +529,22 @@ impl World {
             self.new_school_year();
         }
         true
+    }
+
+    /// 志望校の見直し。成績が上がった子は志望校を上げる。
+    /// `all` が true なら 6 年生全員、false なら伸びた子だけ（9 月）。
+    fn review_targets(&mut self, all: bool) {
+        let schools = &self.schools;
+        for c in self.classrooms.iter_mut() {
+            for s in c.students.iter_mut().filter(|s| s.grade == 6) {
+                let current = schools[s.target_school].deviation;
+                if all || s.deviation > current + 3.0 {
+                    let public = schools[s.target_school].tier == SchoolTier::Public;
+                    let aim = s.deviation + self.rng.range(2.0, 8.0);
+                    s.target_school = gen::school_near(schools, aim, public);
+                }
+            }
+        }
     }
 
     fn run_competitors(&mut self, company_news: &mut Vec<String>) {
@@ -513,7 +557,12 @@ impl World {
                 classroom: ci,
                 students: c.students.len() as u32,
                 weeks_open: c.history.len() as u32,
-                best_teacher: c.best_teacher().map(|t| (t.id, t.skill)),
+                best_teacher: c
+                    .teachers
+                    .iter()
+                    .filter(|t| t.loyal_weeks == 0)
+                    .max_by_key(|t| t.skill)
+                    .map(|t| (t.id, t.skill)),
             })
             .collect();
         let date = self.calendar.date();
@@ -666,7 +715,7 @@ impl World {
                 for (k, &school) in plan.iter().enumerate() {
                     let sch = &self.schools[school];
                     let bonus = self.materials.exam_bonus(sch.tier == SchoolTier::Top);
-                    let x = (s.deviation + bonus - sch.deviation + 2.0) / 4.0;
+                    let x = (s.deviation + bonus - sch.deviation) / 4.0;
                     let passed = self.rng.chance(soft_step(x));
                     tallies[school].takers += 1;
                     if passed {
@@ -689,7 +738,11 @@ impl World {
         }
 
         let score: f64 = tallies.iter().map(|t| t.passes as f64 * self.schools[t.school].tier.weight()).sum();
-        self.brand = clamp01(self.brand * 0.55 + clamp01(score / 60.0) * 0.45);
+        // ブランド：受験生 1 人あたりの合格の質（7.5 割）と、合格者の規模（2.5 割）
+        let per_candidate = if candidates > 0 { score / candidates as f64 } else { 0.0 };
+        let volume = (candidates as f64 / 150.0).min(1.0);
+        let target = clamp01(per_candidate / 3.0 * 0.75 + volume * 0.25);
+        self.brand = clamp01(self.brand * 0.55 + target * 0.45);
 
         let mut stories: Vec<&ExamEntry> = entries.iter().filter(|e| e.first_choice && e.passed).collect();
         stories.sort_by(|a, b| {
@@ -745,11 +798,14 @@ impl World {
                 s.taking_extra = false;
             }
         }
+        // 6 年生になったら、今の成績を見て志望校を決め直す
+        self.review_targets(true);
         market::competitor_new_year(&mut self.competitors, &mut self.rng);
         self.materials.yearly_decay();
         // 地価は年 2% 上がる
         for a in self.areas.iter_mut() {
             a.property_price = a.property_price * 102 / 100;
+            a.pool = (a.pool * (1.0 + a.pool_growth)).max(0.3);
         }
         for c in self.classrooms.iter_mut().filter(|c| c.owned) {
             c.property_value = c.property_value * 102 / 100;

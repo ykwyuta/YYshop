@@ -189,8 +189,8 @@ impl Materials {
 
     /// 入試で偏差値に上乗せする点数。`top` は最難関校か。
     pub fn exam_bonus(&self, top: bool) -> f64 {
-        let trend = (self.axes[AXIS_TREND] - 0.5) * 3.0;
-        let coverage = if top { (self.axes[AXIS_COVERAGE] - 0.5) * 2.0 } else { 0.0 };
+        let trend = (self.axes[AXIS_TREND] - 0.5) * 2.4;
+        let coverage = if top { (self.axes[AXIS_COVERAGE] - 0.5) * 1.6 } else { 0.0 };
         trend + coverage
     }
 }

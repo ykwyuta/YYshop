@@ -14,13 +14,17 @@ use crate::rng::Rng;
 /// 1 クラスの定員。
 pub const CLASS_SIZE: u32 = 20;
 /// 学年別・1 クラスあたりの週授業時間。
-const HOURS_PER_CLASS: [f64; 3] = [5.0, 8.0, 11.0];
+const HOURS_PER_CLASS: [f64; 3] = [8.0, 12.0, 16.0];
 /// 生徒 1 人あたりの質問対応・採点時間（週）。
-const SUPPORT_HOURS_PER_STUDENT: f64 = 0.4;
+const SUPPORT_HOURS_PER_STUDENT: f64 = 0.5;
 /// 週あたりの市場の入塾希望者（4・5・6 年）。
-pub const BASE_POOL: [f64; 3] = [3.0, 1.6, 0.8];
-/// 事務員・光熱費など。
-const OVERHEAD_PER_WEEK: Yen = 70_000;
+pub const BASE_POOL: [f64; 3] = [3.6, 1.9, 0.95];
+/// 事務員・光熱費など（固定分）。
+const OVERHEAD_BASE_PER_WEEK: Yen = 40_000;
+/// 事務員・光熱費など（生徒 1 人あたり）。
+const OVERHEAD_PER_STUDENT_WEEK: Yen = 500;
+/// 塾選びの「勝者総取り」の強さ（魅力度の何乗でシェアが決まるか）。
+pub const SHARE_EXPONENT: i32 = 3;
 const DEPRECIATION_PER_WEEK: Yen = 25_000;
 const ADMISSION_FEE: Yen = 20_000;
 const MATERIALS_FEE_MONTHLY: Yen = 4_500;
@@ -37,9 +41,13 @@ pub(crate) fn monthly_to_weekly(m: Yen) -> f64 {
     m as f64 * 12.0 / 52.0
 }
 
-pub(crate) fn pow4(x: f64) -> f64 {
-    let x2 = x * x;
-    x2 * x2
+/// 魅力度をシェアの重みに変換する（整数乗なので環境差が出ない）。
+pub(crate) fn share_weight(x: f64) -> f64 {
+    let mut w = 1.0;
+    for _ in 0..SHARE_EXPONENT {
+        w *= x;
+    }
+    w
 }
 
 pub fn season_pool_multiplier(season: Season) -> [f64; 3] {
@@ -109,7 +117,7 @@ pub struct Classroom {
 }
 
 /// 物件維持費（固定資産税・修繕費）の年率。
-pub const PROPERTY_UPKEEP_RATE: f64 = 0.012;
+pub const PROPERTY_UPKEEP_RATE: f64 = 0.015;
 
 impl Course {
     pub(crate) fn new(kind: CourseKind, name: &str, fee: Yen) -> Self {
@@ -287,10 +295,10 @@ impl Classroom {
             return 0.0;
         }
         0.30 * brand
-            + 0.25 * stats.quality
-            + 0.15 * stats.care
-            + 0.20 * price_score(self.main_fee(grade), data::REFERENCE_FEES[gi])
-            + 0.10 * self.awareness
+            + 0.28 * stats.quality
+            + 0.16 * stats.care
+            + 0.14 * price_score(self.main_fee(grade), data::REFERENCE_FEES[gi])
+            + 0.12 * self.awareness
             + 0.05 * (self.ratings.overall() - 3.0)
             + 0.05 * (trust - 0.5)
             + 0.05 * self.star_teachers().min(2) as f64
@@ -443,7 +451,7 @@ impl Classroom {
             let noise_dev = ctx.rng.normal(0.0, 0.35);
             let noise_stress = ctx.rng.normal(0.0, 0.01);
             let noise_mot = ctx.rng.normal(0.0, 0.015);
-            let mut mean = (stats.quality - 0.45) * 0.20 + (s.motivation - 0.5) * 0.08 + (hw - 3.0) * 0.025
+            let mut mean = (stats.quality - 0.45) * 0.20 + (s.motivation - 0.5) * 0.08 + (hw - 3.0) * 0.045
                 - (s.stress - 0.75).max(0.0) * 0.4
                 + ctx.materials.learning_bonus(s.deviation);
             if study_room {
@@ -457,7 +465,7 @@ impl Classroom {
             let delta = s.deviation - before;
 
             let mut ds =
-                0.012 * (hw - 2.5) - stats.care * 0.02 - 0.004 + noise_stress + ctx.materials.stress_delta(before);
+                0.0105 * (hw - 2.5) - stats.care * 0.02 - 0.004 + noise_stress + ctx.materials.stress_delta(before);
             if summer && s.taking_extra {
                 ds += 0.01;
             }
@@ -527,6 +535,7 @@ impl Classroom {
         let load = if stats.available_hours > 0.0 { stats.needed_hours / stats.available_hours } else { 0.0 };
         let mut quit = Vec::new();
         for t in self.teachers.iter_mut() {
+            t.loyal_weeks = t.loyal_weeks.saturating_sub(1);
             t.fatigue = clamp01(t.fatigue + (load - 1.0) * 0.1 - 0.01);
             if t.fatigue > 0.9 && ctx.rng.chance(0.04) {
                 quit.push(t.id);
@@ -640,7 +649,7 @@ impl Classroom {
         }
         pnl.materials_cost = (n * monthly_to_weekly(ctx.materials.cost_per_student_monthly())) as Yen;
         pnl.depreciation = DEPRECIATION_PER_WEEK;
-        pnl.other = OVERHEAD_PER_WEEK;
+        pnl.other = OVERHEAD_BASE_PER_WEEK + OVERHEAD_PER_STUDENT_WEEK * self.students.len() as Yen;
 
         let mut marketing = 0.0;
         for c in self.campaigns.iter().filter(|c| c.active) {
@@ -850,10 +859,10 @@ pub(crate) fn distribute_area_demand(
     let mut inquiries = [0.0; 3];
     for gi in 0..3 {
         let pool = BASE_POOL[gi] * pools[gi] * area.pool;
-        let ours_w = ours.map(|a| pow4(a[gi].max(0.0))).unwrap_or(0.0);
+        let ours_w = ours.map(|a| share_weight(a[gi].max(0.0))).unwrap_or(0.0);
         let comp_w: Vec<f64> = competitors
             .iter()
-            .map(|c| c.branch(area_idx).map(|b| pow4(c.attractiveness(b, gi))).unwrap_or(0.0))
+            .map(|c| c.branch(area_idx).map(|b| share_weight(c.attractiveness(b, gi))).unwrap_or(0.0))
             .collect();
         let total = ours_w + comp_w.iter().sum::<f64>();
         if total <= 0.0 {
@@ -864,7 +873,7 @@ pub(crate) fn distribute_area_demand(
             if comp_w[ci] <= 0.0 {
                 continue;
             }
-            let gain = rng.round_stochastic(pool * comp_w[ci] / total * 0.6);
+            let gain = rng.round_stochastic(pool * comp_w[ci] / total * 0.65);
             if let Some(b) = c.branch_mut(area_idx) {
                 b.students[gi] += gain;
             }

@@ -168,6 +168,24 @@ pub struct Teacher {
     /// スター講師（生徒を呼び込む看板講師）
     #[serde(default)]
     pub star: bool,
+    /// 引き止めた後、引き抜きの標的にならない残り週数
+    #[serde(default)]
+    pub loyal_weeks: u32,
+}
+
+/// 給与の上限（引き止めの昇給を重ねても超えない）。
+pub const MAX_PRO_PAY: Yen = 15_000_000;
+pub const MAX_STUDENT_HOURLY: Yen = 4_000;
+
+impl Teacher {
+    /// 2 割の昇給（上限あり）。
+    pub fn raise_pay(&mut self) {
+        let cap = match self.kind {
+            TeacherKind::Pro => MAX_PRO_PAY,
+            TeacherKind::Student => MAX_STUDENT_HOURLY,
+        };
+        self.pay = (self.pay * 6 / 5).min(cap).max(self.pay.min(cap));
+    }
 }
 
 impl Teacher {

@@ -425,3 +425,46 @@ fn star_teacher_boosts_attractiveness() {
     let after = w.classrooms[0].attractiveness(0, &stats, w.brand, w.trust);
     assert!(after > before);
 }
+
+#[test]
+fn bankruptcy_after_long_negative_cash() {
+    let mut w = World::new(1200);
+    w.cash = -1_000_000;
+    // 赤字を出し続けるよう、全コースを休講にする
+    for i in 0..w.classrooms[0].courses.len() {
+        w.classroom_mut(0).set_course_enabled(i, false);
+    }
+    let mut weeks = 0;
+    while !w.bankrupt && weeks < 60 {
+        if w.pending_event.is_some() {
+            w.resolve_event(Choice::B);
+        }
+        w.step_week();
+        weeks += 1;
+    }
+    assert!(w.bankrupt, "資金がマイナスのままなら倒産する");
+    assert!(weeks <= juku_sim::world::BANKRUPTCY_WEEKS);
+    assert!(!w.step_week(), "倒産後は進めない");
+    let interest: Yen = w.history.iter().map(|h| h.hq.interest).sum();
+    assert!(interest > 0, "当座貸越の利息がかかる");
+}
+
+#[test]
+fn retention_raise_is_capped_and_grants_loyalty() {
+    let mut w = World::new(1201);
+    let id = w.classrooms[0].teachers[0].id;
+    for _ in 0..30 {
+        w.pending_event = Some(GameEvent {
+            kind: EventKind::Poaching { teacher_id: id, competitor: 0 },
+            classroom: Some(0),
+            title: String::new(),
+            body: String::new(),
+            choice_a: String::new(),
+            choice_b: String::new(),
+        });
+        w.resolve_event(Choice::A);
+    }
+    let t = w.classrooms[0].teachers.iter().find(|t| t.id == id).unwrap();
+    assert!(t.pay <= MAX_PRO_PAY, "昇給を重ねても上限を超えない: {}", t.pay);
+    assert!(t.loyal_weeks > 0, "引き止めた講師はしばらく引き抜かれない");
+}

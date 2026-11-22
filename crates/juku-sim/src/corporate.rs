@@ -121,7 +121,7 @@ impl World {
         self.areas[self.classrooms[ci].area].property_price
     }
 
-    /// 教室の物件を買う。以後は家賃の代わりに維持費（年 1.2%）がかかる。
+    /// 教室の物件を買う。以後は家賃の代わりに維持費（年 1.5%）がかかる。
     pub fn buy_property(&mut self, ci: usize) -> Result<(), String> {
         let price = self.property_price(ci);
         let c = &self.classrooms[ci];

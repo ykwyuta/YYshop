@@ -182,6 +182,7 @@ impl App for GameApp {
         let modal_open = {
             let world = self.world.as_ref().unwrap();
             world.pending_event.is_some()
+                || world.bankrupt
                 || world.unseen_exam_result
                 || self.exam_view.is_some()
                 || self.confirm.is_some()
@@ -261,7 +262,13 @@ impl App for GameApp {
         // モーダル
         ui.input_enabled = true;
         let world = self.world.as_mut().unwrap();
-        if let Some(ev) = world.pending_event.clone() {
+        if world.bankrupt {
+            if screens::modals::bankrupt(ui, world) {
+                let now = ui.input.time;
+                self.new_game(now);
+                self.save(ctx);
+            }
+        } else if let Some(ev) = world.pending_event.clone() {
             let cname = ev.classroom.and_then(|i| world.classrooms.get(i)).map(|c| c.name.clone());
             if let Some(choice) = screens::modals::event(ui, &ev, cname.as_deref()) {
                 world.resolve_event(choice);

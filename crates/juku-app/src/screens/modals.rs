@@ -261,3 +261,22 @@ pub fn star_offer(ui: &mut Ui, world: &World, comp: usize, star: usize, classroo
         out
     })
 }
+
+/// 倒産（ゲームオーバー）。「最初からやり直す」を押したら true。
+pub fn bankrupt(ui: &mut Ui, world: &World) -> bool {
+    let t = ui.theme;
+    ui.modal(Id::new("modal-bankrupt"), 460.0, |ui| {
+        ui.caption("ゲームオーバー");
+        ui.label_ex(&format!("{}は倒産しました", world.company_name), t.font_title, FontWeight::Bold, t.negative, Align::Left);
+        ui.label("資金繰りがつかず、教室を続けられなくなりました。");
+        let years = world.history.len() as f64 / 52.0;
+        ui.kv_row("経営した期間", &format!("{years:.1} 年"), None);
+        ui.kv_row("最後の資金", &crate::fmt::format_yen(world.cash), Some(t.negative));
+        ui.kv_row("借入残高", &crate::fmt::format_yen(world.debt()), None);
+        ui.kv_row("教室数", &format!("{}", world.classrooms.len()), None);
+        let passes: u32 = world.exam_results.iter().map(|e| e.total_passes()).sum();
+        ui.kv_row("送り出した合格（累計）", &format!("{passes} 件"), None);
+        ui.caption("資金がマイナスのまま 26 週たつか、マイナス 3,000 万円を下回ると倒産します。融資や経費削減で早めに手を打ちましょう。");
+        ui.button("最初からやり直す", ButtonStyle::Primary)
+    })
+}

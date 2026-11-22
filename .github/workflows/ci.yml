@@ -24,8 +24,8 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo clippy -p juku-web --target wasm32-unknown-unknown -- -D warnings
       - run: cargo test --workspace
-      - name: バランス確認（ヘッドレスで 3 年 × 5 シード）
-        run: cargo run -p juku-sim --example balance --release -- 3 5 | tee balance.txt
+      - name: バランス確認（6 戦略 × 5 年 × 8 シード）
+        run: cargo run -p juku-sim --example balance --release -- 5 8 | tee balance.txt
       - uses: actions/upload-artifact@v4
         with:
           name: balance-report

@@ -178,6 +178,8 @@ pub struct AreaDef {
     pub open_cost: i64,
     /// 教室の物件を買い取る場合の価格
     pub property_price: i64,
+    /// 市場規模の年間の伸び（新興エリアは伸び、高齢化エリアは縮む）
+    pub pool_growth: f64,
 }
 
 pub const AREAS: &[AreaDef] = &[
@@ -188,16 +190,18 @@ pub const AREAS: &[AreaDef] = &[
         pool: 1.0,
         rent: 120_000,
         open_cost: 0,
-        property_price: 70_000_000,
+        property_price: 95_000_000,
+        pool_growth: 0.0,
     },
     AreaDef {
         name: "桜ヶ丘",
         address: "桜ヶ丘駅前1-8",
         description: "教育熱心な家庭が多い人気エリア。英峰ゼミナールの牙城",
-        pool: 1.35,
+        pool: 1.25,
         rent: 170_000,
         open_cost: 9_000_000,
-        property_price: 105_000_000,
+        property_price: 135_000_000,
+        pool_growth: 0.01,
     },
     AreaDef {
         name: "港南",
@@ -206,25 +210,28 @@ pub const AREAS: &[AreaDef] = &[
         pool: 0.8,
         rent: 90_000,
         open_cost: 6_000_000,
-        property_price: 50_000_000,
+        property_price: 70_000_000,
+        pool_growth: 0.0,
     },
     AreaDef {
         name: "緑町",
         address: "緑町5-1-4",
-        description: "大手が手薄な住宅地。市場は小さめ",
+        description: "大手が手薄な住宅地。市場は小さく、少しずつ縮んでいる",
         pool: 0.7,
         rent: 85_000,
         open_cost: 5_500_000,
-        property_price: 45_000_000,
+        property_price: 64_000_000,
+        pool_growth: -0.02,
     },
     AreaDef {
         name: "東雲",
         address: "東雲ベイ2-3",
-        description: "タワーマンションが増える新興エリア",
+        description: "タワーマンションが増える新興エリア。市場が毎年 6% ずつ伸びる",
         pool: 1.15,
         rent: 150_000,
         open_cost: 8_000_000,
-        property_price: 90_000_000,
+        property_price: 120_000_000,
+        pool_growth: 0.06,
     },
 ];
 

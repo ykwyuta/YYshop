@@ -476,7 +476,7 @@ fn finance(ui: &mut Ui, world: &mut World, action: &mut Option<HqAction>) {
 fn properties(ui: &mut Ui, world: &World, action: &mut Option<HqAction>) {
     let t = ui.theme;
     ui.heading("物件");
-    ui.caption("教室の物件を買うと家賃がなくなり、代わりに維持費（評価額の年 1.2%）がかかります。地価は毎年 2% 上がり、融資の担保にもなります。");
+    ui.caption("教室の物件を買うと家賃がなくなり、代わりに維持費（評価額の年 1.5%）がかかります。地価は毎年 2% 上がり、融資の担保にもなります。");
     for (ci, c) in world.classrooms.iter().enumerate() {
         let area = &world.areas[c.area];
         ui.card(16.0, |ui| {

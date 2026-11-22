@@ -157,6 +157,12 @@ fn manager_message(world: &World, ci: usize) -> String {
     if world.pending_event.is_some() {
         return "塾長、ご判断をお願いします。".into();
     }
+    if world.cash < 0 {
+        return format!(
+            "資金がマイナスです！あと {} 週で倒産します。融資や経費削減を急いでください。",
+            juku_sim::world::BANKRUPTCY_WEEKS.saturating_sub(world.negative_weeks)
+        );
+    }
     let c = &world.classrooms[ci];
     let Some(r) = c.last_report() else {
         if c.students.is_empty() {

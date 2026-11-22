@@ -86,7 +86,7 @@ pub fn make_teacher(rng: &mut Rng, next_id: &mut u32, kind: TeacherKind) -> Teac
             (skill, care, (pay / 50.0) as Yen * 50)
         }
     };
-    Teacher { id, name, kind, skill: skill as u32, care: care as u32, pay, fatigue: 0.1, star: false }
+    Teacher { id, name, kind, skill: skill as u32, care: care as u32, pay, fatigue: 0.1, star: false, loyal_weeks: 0 }
 }
 
 pub fn make_candidates(rng: &mut Rng, next_id: &mut u32) -> Vec<Teacher> {
