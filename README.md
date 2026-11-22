@@ -84,6 +84,22 @@ npx wrangler deploy            # wrangler.toml の設定で dist/ を配信
 # Pages の場合: npx wrangler pages deploy dist --project-name yyshop
 ```
 
+#### デプロイとキャッシュ
+
+`wrangler deploy` は新しいファイル一式をまとめて差し替えるため、通常は Cloudflare 側でキャッシュを削除（Purge）する必要はありません。ブラウザ側のキャッシュは次の設計で、デプロイ後に自動で新しい版に切り替わります。
+
+| ファイル | キャッシュ | 新しい版への切り替わり |
+|----------|-----------|------------------------|
+| `index.html`、`manifest.webmanifest` | `no-cache`（毎回サーバーに確認） | 次に開いたとき |
+| `pkg/*.wasm`、`pkg/*.js` | 1 年・immutable | ファイル名に内容のハッシュが入る |
+| `assets/`（フォント・アイコン） | 1 年・immutable | URL に `?v=<内容のハッシュ>` が付く（`tools/build-web.sh` が計算） |
+
+それでも古い画面が残る場合（独自のキャッシュルールを設定した、拡張機能やプロキシが残している等）は、ゲーム内の **本部タブ → ヘルプ →「キャッシュを削除して再読み込み」** を使ってください。Cache Storage と Service Worker を削除し、フォントを HTTP キャッシュを使わずに取り直してから再読み込みします。セーブデータ（localStorage）は消えません。
+
+Cloudflare のゾーンにキャッシュルールを追加している場合は、ダッシュボードの「Caching → Configuration → Purge Everything」で削除してください。
+
+なお、セーブデータの形式（`SAVE_VERSION`）を変えたデプロイの後は、古いセーブは読み込まれず「はじめから」になります。
+
 GitHub Actions（`.github/workflows/ci.yml`）は main へのマージ時に自動でデプロイします。
 リポジトリのシークレットに `CLOUDFLARE_API_TOKEN` と `CLOUDFLARE_ACCOUNT_ID` を設定してください（未設定ならデプロイはスキップされます）。
 

@@ -190,8 +190,10 @@ wasm-opt -Oz dist/pkg/juku_web_bg.wasm -o dist/pkg/juku_web_bg.wasm
     Cache-Control: no-cache
   /pkg/*
     Cache-Control: public, max-age=31536000, immutable
-  /assets/*
-    Cache-Control: public, max-age=604800, stale-while-revalidate=86400
+  /manifest.webmanifest
+    Cache-Control: no-cache
+/assets/*
+    Cache-Control: public, max-age=31536000, immutable
   /*
     Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'
     X-Content-Type-Options: nosniff
@@ -247,7 +249,8 @@ wasm-opt -Oz dist/pkg/juku_web_bg.wasm -o dist/pkg/juku_web_bg.wasm
 
 設計からの変更点
 - Web のセーブは IndexedDB ではなく localStorage で開始した（データが小さいため）
-- フォントはファイル名にハッシュを付けていないため、キャッシュは 1 週間＋ stale-while-revalidate とした
+- フォント・アイコンはファイル名ではなく URL に `?v=<内容のハッシュ>` を付けて長期キャッシュする（ビルド時に `YYSHOP_ASSET_VERSION` として wasm に埋め込む）
+- ゲーム内ヘルプに「キャッシュを削除して再読み込み」を用意（Cache Storage・Service Worker の削除、フォントの `cache: reload` 取得、`?reload=` 付きで再読み込み。セーブは残す）
 - 日本語入力（IME）は MVP の画面に文字入力がないため未着手（α で塾名入力とあわせて実装する）
 - 自社教材の五角形、複数教室、競合 AI の能動的な行動は α 以降（→ 9 章で実装済み）
 

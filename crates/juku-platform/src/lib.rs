@@ -38,6 +38,14 @@ pub struct Ctx<'a> {
     pub is_web: bool,
 }
 
+impl Ctx<'_> {
+    /// ブラウザのキャッシュを削除して再読み込みする（Web のみ。ネイティブでは何もしない）。
+    /// セーブデータは消さない。
+    pub fn force_reload(&mut self) {
+        storage::force_reload();
+    }
+}
+
 pub enum FontSource {
     /// 実行ファイルに埋め込んだフォント（Windows 版）
     Embedded { regular: &'static [u8], bold: &'static [u8] },
@@ -383,8 +391,9 @@ impl<A: App> ApplicationHandler<UserEvent> for Handler<A> {
                 let fonts = match embedded {
                     Some((r, b)) => Ok((r.to_vec(), b.to_vec())),
                     None => {
-                        let r = storage::fetch_bytes(&regular_url).await;
-                        let b = storage::fetch_bytes(&bold_url).await;
+                        let reload = storage::take_force_refetch();
+                        let r = storage::fetch_bytes(&regular_url, reload).await;
+                        let b = storage::fetch_bytes(&bold_url, reload).await;
                         r.and_then(|r| b.map(|b| (r, b)))
                     }
                 };

@@ -112,11 +112,16 @@ pub(crate) fn base64_decode(s: &str) -> Option<Vec<u8>> {
     Some(out)
 }
 
+/// `reload` が true ならブラウザの HTTP キャッシュを使わずに取り直す。
 #[cfg(target_arch = "wasm32")]
-pub(crate) async fn fetch_bytes(url: &str) -> Result<Vec<u8>, String> {
+pub(crate) async fn fetch_bytes(url: &str, reload: bool) -> Result<Vec<u8>, String> {
     use wasm_bindgen::JsCast;
     let window = web_sys::window().ok_or("no window")?;
-    let resp = wasm_bindgen_futures::JsFuture::from(window.fetch_with_str(url))
+    let init = web_sys::RequestInit::new();
+    if reload {
+        init.set_cache(web_sys::RequestCache::Reload);
+    }
+    let resp = wasm_bindgen_futures::JsFuture::from(window.fetch_with_str_and_init(url, &init))
         .await
         .map_err(|e| format!("fetch {url}: {e:?}"))?;
     let resp: web_sys::Response = resp.dyn_into().map_err(|_| "not a Response")?;
@@ -127,6 +132,60 @@ pub(crate) async fn fetch_bytes(url: &str) -> Result<Vec<u8>, String> {
         .await
         .map_err(|e| format!("{e:?}"))?;
     Ok(js_sys::Uint8Array::new(&buf).to_vec())
+}
+
+/// 強制再読み込みの直後か（フォントなどをキャッシュを使わずに取り直す）。印は一度で消す。
+#[cfg(target_arch = "wasm32")]
+const FORCE_KEY: &str = "yyshop.force_refetch";
+
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn take_force_refetch() -> bool {
+    let Some(st) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) else { return false };
+    let on = st.get_item(FORCE_KEY).ok().flatten().is_some();
+    if on {
+        let _ = st.remove_item(FORCE_KEY);
+    }
+    on
+}
+
+/// キャッシュを強制的に削除して再読み込みする（Web のみ）。セーブデータ（localStorage）は消さない。
+///
+/// 1. Cache Storage を全て削除（Service Worker などが作ったキャッシュ）
+/// 2. Service Worker を登録解除
+/// 3. 次回起動時にフォントを HTTP キャッシュを使わず取り直す印をつける
+/// 4. URL にタイムスタンプを付けて再読み込み（index.html を必ず取り直す）
+pub(crate) fn force_reload() {
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_futures::spawn_local(async {
+        use wasm_bindgen::JsCast;
+        use wasm_bindgen_futures::JsFuture;
+        let Some(window) = web_sys::window() else { return };
+        if let Ok(Some(st)) = window.local_storage() {
+            let _ = st.set_item(FORCE_KEY, "1");
+        }
+        if let Ok(caches) = window.caches() {
+            if let Ok(keys) = JsFuture::from(caches.keys()).await {
+                for key in js_sys::Array::from(&keys).iter() {
+                    if let Some(k) = key.as_string() {
+                        let _ = JsFuture::from(caches.delete(&k)).await;
+                    }
+                }
+            }
+        }
+        let sw = window.navigator().service_worker();
+        if let Ok(regs) = JsFuture::from(sw.get_registrations()).await {
+            for reg in js_sys::Array::from(&regs).iter() {
+                if let Ok(reg) = reg.dyn_into::<web_sys::ServiceWorkerRegistration>() {
+                    if let Ok(p) = reg.unregister() {
+                        let _ = JsFuture::from(p).await;
+                    }
+                }
+            }
+        }
+        let loc = window.location();
+        let path = loc.pathname().unwrap_or_else(|_| "/".into());
+        let _ = loc.replace(&format!("{path}?reload={}", js_sys::Date::now() as u64));
+    });
 }
 
 /// 読み込み中表示を消す（Web のみ）。

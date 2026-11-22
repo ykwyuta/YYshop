@@ -54,6 +54,7 @@ pub struct GameApp {
     exam_view: Option<usize>,
     toast: Option<(String, f64)>,
     confirm_new_game: bool,
+    confirm_reload: bool,
     seed_counter: u64,
 }
 
@@ -75,6 +76,7 @@ impl GameApp {
             exam_view: None,
             toast: None,
             confirm_new_game: false,
+            confirm_reload: false,
             seed_counter: 0,
         }
     }
@@ -159,6 +161,7 @@ impl App for GameApp {
                 || self.exam_view.is_some()
                 || self.confirm_new_game
                 || self.opening_area.is_some()
+                || self.confirm_reload
         };
         let n_classrooms = self.world.as_ref().unwrap().classrooms.len();
         self.selected = self.selected.min(n_classrooms - 1);
@@ -174,6 +177,7 @@ impl App for GameApp {
             let seg = &mut self.course_segment;
             let acc_seg = &mut self.accounting_segment;
             let mut hq_action = None;
+            let is_web = ctx.is_web;
             ui.scroll_area(id, viewport, 0.0, |ui| {
                 ui.padded(16.0, 18.0, |ui| {
                     ui.set_spacing(16.0);
@@ -182,7 +186,7 @@ impl App for GameApp {
                         Tab::Courses => screens::courses::draw(ui, world, ci, seg),
                         Tab::Marketing => screens::marketing::draw(ui, world, ci),
                         Tab::Accounting => screens::accounting::draw(ui, world, ci, acc_seg),
-                        Tab::Hq => hq_action = screens::hq::draw(ui, world),
+                        Tab::Hq => hq_action = screens::hq::draw(ui, world, is_web),
                     }
                 });
             });
@@ -200,6 +204,7 @@ impl App for GameApp {
                 }
                 Some(screens::hq::HqAction::Open(area)) => self.opening_area = Some(area),
                 Some(screens::hq::HqAction::Toast(msg)) => self.show_toast(msg, now),
+                Some(screens::hq::HqAction::ForceReload) => self.confirm_reload = true,
                 None => {}
             }
         }
@@ -263,6 +268,23 @@ impl App for GameApp {
                     }
                 },
                 Some(None) => self.opening_area = None,
+                None => {}
+            }
+        } else if self.confirm_reload {
+            match screens::modals::confirm(
+                ui,
+                "キャッシュを削除して再読み込み",
+                "ブラウザに残っている古いファイルを削除して、最新版を読み込み直します。セーブデータは消えません（今の状態を保存してから再読み込みします）。",
+                "削除して再読み込み",
+            ) {
+                Some(true) => {
+                    self.confirm_reload = false;
+                    self.save(ctx);
+                    ctx.force_reload();
+                    let now = ui.input.time;
+                    self.show_toast("再読み込みしています…", now);
+                }
+                Some(false) => self.confirm_reload = false,
                 None => {}
             }
         } else if self.confirm_new_game {

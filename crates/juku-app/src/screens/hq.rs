@@ -16,9 +16,11 @@ pub enum HqAction {
     /// このエリアに開校する（教室長を選ぶ）
     Open(usize),
     Toast(String),
+    /// キャッシュを削除して再読み込み（Web）
+    ForceReload,
 }
 
-pub fn draw(ui: &mut Ui, world: &mut World) -> Option<HqAction> {
+pub fn draw(ui: &mut Ui, world: &mut World, is_web: bool) -> Option<HqAction> {
     let t = ui.theme;
     let mut action = None;
 
@@ -124,6 +126,7 @@ pub fn draw(ui: &mut Ui, world: &mut World) -> Option<HqAction> {
             action = Some(HqAction::NewGame);
         }
     });
+    help(ui, is_web, &mut action);
     action
 }
 
@@ -276,5 +279,48 @@ fn materials_section(ui: &mut Ui, world: &mut World, action: &mut Option<HqActio
                 }
             }
         }
+    });
+}
+
+fn help(ui: &mut Ui, is_web: bool, action: &mut Option<HqAction>) {
+    let t = ui.theme;
+    ui.heading("ヘルプ");
+    ui.card(16.0, |ui| {
+        ui.set_spacing(8.0);
+        ui.label_ex("遊び方の基本", t.font_body, FontWeight::Bold, t.text, Align::Left);
+        for tip in [
+            "・画面右上の「次の週へ」で 1 週間進みます。進めるたびに自動で保存されます。",
+            "・講師の充足率が 100% を下回ると授業の質が落ち、講師が辞めていきます。教室タブで採用しましょう。",
+            "・毎年 2 月 1 日の入試結果が会社のブランド力になり、翌年の集客を左右します。",
+            "・資金が貯まったら、この本部タブから別のエリアに教室を開けます。教室が増えたら教室長に業務を任せましょう。",
+            "・自社教材を作ると 5 つの軸を鍛えられます。入試対応は毎年古くなるので改訂を続けましょう。",
+        ] {
+            ui.label_ex(tip, t.font_small + 1.0, FontWeight::Regular, t.text, Align::Left);
+        }
+    });
+    ui.card(16.0, |ui| {
+        ui.set_spacing(8.0);
+        ui.label_ex("表示がおかしいとき", t.font_body, FontWeight::Bold, t.text, Align::Left);
+        if is_web {
+            ui.label_ex(
+                "アップデート後に古い画面のままになる・文字や画像が崩れるときは、ブラウザのキャッシュを削除して再読み込みしてください。セーブデータは消えません。",
+                t.font_small + 1.0,
+                FontWeight::Regular,
+                t.text_dim,
+                Align::Left,
+            );
+            if ui.button("キャッシュを削除して再読み込み", ButtonStyle::Secondary) {
+                *action = Some(HqAction::ForceReload);
+            }
+        } else {
+            ui.label_ex(
+                "Windows 版ではキャッシュの削除は不要です。表示がおかしいときは、最新版の exe に置き換えてください。",
+                t.font_small + 1.0,
+                FontWeight::Regular,
+                t.text_dim,
+                Align::Left,
+            );
+        }
+        ui.caption(&format!("バージョン {}", env!("CARGO_PKG_VERSION")));
     });
 }

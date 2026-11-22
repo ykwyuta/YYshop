@@ -7,6 +7,13 @@ cd "$(dirname "$0")/.."
 
 OUT=dist
 PROFILE=release-web
+
+# フォント・アイコン・manifest の内容ハッシュ。URL に ?v=... として付け、
+# 中身が変わったらブラウザが必ず取り直すようにする（同じなら長期キャッシュが効く）
+ASSET_VERSION=$(cat assets/fonts/*.subset.otf assets/icon/icon.svg assets/icon/icon-*.png web/manifest.webmanifest \
+  | sha256sum | cut -c1-10)
+export YYSHOP_ASSET_VERSION="$ASSET_VERSION"
+echo "asset version: $ASSET_VERSION"
 cargo build -p juku-web --target wasm32-unknown-unknown --profile "$PROFILE"
 
 rm -rf "$OUT"
@@ -30,13 +37,14 @@ JS_HASH=$(hash "$OUT/pkg/juku_web.js")
 JS_NAME="juku_web.$JS_HASH.js"
 mv "$OUT/pkg/juku_web.js" "$OUT/pkg/$JS_NAME"
 
-sed -e "s/__JS__/$JS_NAME/" -e "s/__WASM__/$WASM_NAME/" web/index.html > "$OUT/index.html"
+sed -e "s/__JS__/$JS_NAME/" -e "s/__WASM__/$WASM_NAME/" -e "s/__V__/$ASSET_VERSION/g" \
+  web/index.html > "$OUT/index.html"
 cp web/_headers "$OUT/_headers"
 cp assets/fonts/*.subset.otf assets/fonts/OFL.txt "$OUT/assets/fonts/"
 mkdir -p "$OUT/assets/icon"
 cp assets/icon/icon.svg assets/icon/icon-32.png assets/icon/icon-180.png \
    assets/icon/icon-192.png assets/icon/icon-512.png "$OUT/assets/icon/"
-cp web/manifest.webmanifest "$OUT/"
+sed -e "s/__V__/$ASSET_VERSION/g" web/manifest.webmanifest > "$OUT/manifest.webmanifest"
 
 # Cloudflare の 1 ファイル上限（25 MiB）に対するサイズチェック
 LIMIT=$((25 * 1024 * 1024))

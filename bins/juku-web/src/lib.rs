@@ -3,6 +3,13 @@
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
+/// フォントなどのアセットのバージョン（tools/build-web.sh が内容ハッシュを渡す）。
+#[cfg(target_arch = "wasm32")]
+const ASSET_VERSION: &str = match option_env!("YYSHOP_ASSET_VERSION") {
+    Some(v) => v,
+    None => "dev",
+};
+
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(start)]
 pub fn start() {
@@ -11,8 +18,8 @@ pub fn start() {
         title: "合格の街 〜塾長シミュレーター〜".into(),
         size: (440.0, 900.0),
         fonts: juku_platform::FontSource::Url {
-            regular: "assets/fonts/NotoSansJP-Regular.subset.otf".into(),
-            bold: "assets/fonts/NotoSansJP-Bold.subset.otf".into(),
+            regular: format!("assets/fonts/NotoSansJP-Regular.subset.otf?v={ASSET_VERSION}"),
+            bold: format!("assets/fonts/NotoSansJP-Bold.subset.otf?v={ASSET_VERSION}"),
         },
         canvas_id: "app".into(),
         icon_png: None,
