@@ -183,7 +183,7 @@ wasm-opt -Oz dist/pkg/juku_web_bg.wasm -o dist/pkg/juku_web_bg.wasm
 
 ### 5.3 Cloudflare での静的配信
 - `dist/`（`index.html`、`pkg/*.wasm`、`pkg/*.js`、`assets/`）を **Cloudflare Workers の静的アセット配信（または Cloudflare Pages）** に置く。サーバー処理は不要
-- デプロイ：`wrangler deploy`（Workers）または `wrangler pages deploy dist`（Pages）
+- デプロイ：`npx wrangler deploy`。`wrangler.toml` の `[build]` から `tools/cloudflare-build.sh` が走り、Rust・wasm-bindgen が無い環境（Cloudflare の Git 連携のビルド環境）ではインストールしてから `dist/` を作る
 - `_headers` でキャッシュとセキュリティを設定する
   ```
   /index.html
@@ -209,7 +209,7 @@ wasm-opt -Oz dist/pkg/juku_web_bg.wasm -o dist/pkg/juku_web_bg.wasm
 | sim-balance | ヘッドレスで100年度分を実行し、KPI の分布をレポート（係数を変えたときの退行検知） |
 | build-windows | `windows-latest` で exe を作り、成果物（artifact）として保存 |
 | build-web | wasm ビルド → `wasm-opt` → サイズチェック |
-| deploy | main ブランチへのマージ時に Cloudflare へデプロイ（API トークンは GitHub Secrets に置く） |
+| （デプロイ） | GitHub Actions では行わない。Cloudflare の Git 連携（Workers Builds）が master への push で `npx wrangler deploy` を実行する |
 
 ---
 

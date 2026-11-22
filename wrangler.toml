@@ -1,7 +1,13 @@
 # Cloudflare Workers の静的アセット配信（サーバー処理なし）
-# デプロイ: ./tools/build-web.sh && npx wrangler deploy
+#
+# デプロイ: npx wrangler deploy
+#   デプロイの直前に [build] が走り、tools/cloudflare-build.sh が dist/ を作る
+#   （Cloudflare のビルド環境のように Rust が無ければ自動で入れる）。
 name = "yyshop"
 compatibility_date = "2025-09-01"
+
+[build]
+command = "./tools/cloudflare-build.sh"
 
 [assets]
 directory = "./dist"

@@ -81,13 +81,23 @@ python3 -m http.server -d dist 8080                         # http://localhost:8
 
 ### Cloudflare へのデプロイ
 
-`dist/` は静的ファイルだけなので、Cloudflare Workers の静的アセット配信（または Pages）にそのまま置けます。
+`dist/` は静的ファイルだけなので、Cloudflare Workers の静的アセット配信にそのまま置けます。
+`wrangler.toml` の `[build]` で、デプロイの直前に `tools/cloudflare-build.sh` が `dist/` を作ります。
+Rust や `wasm-bindgen` が入っていない環境（Cloudflare のビルド環境など）では、自動でインストールしてからビルドします。
 
 ```sh
-./tools/build-web.sh
-npx wrangler deploy            # wrangler.toml の設定で dist/ を配信
-# Pages の場合: npx wrangler pages deploy dist --project-name yyshop
+npx wrangler deploy            # ビルドしてからデプロイ
+npx wrangler deploy --dry-run  # ビルドだけ確かめる
 ```
+
+**Cloudflare の Git 連携（Workers Builds）** で配信する場合は、ダッシュボードの設定を次のようにします。
+
+| 項目 | 値 |
+|------|----|
+| ビルドコマンド | （空欄） |
+| デプロイコマンド | `npx wrangler deploy` |
+
+ビルドは `wrangler deploy` が `[build]` から実行するので、ビルドコマンドは不要です。初回は Rust のインストールとコンパイルで数分かかります。
 
 #### デプロイとキャッシュ
 
@@ -105,8 +115,7 @@ Cloudflare のゾーンにキャッシュルールを追加している場合は
 
 なお、セーブデータの形式（`SAVE_VERSION`）を変えたデプロイの後は、古いセーブは読み込まれず「はじめから」になります。
 
-GitHub Actions（`.github/workflows/ci.yml`）は main へのマージ時に自動でデプロイします。
-リポジトリのシークレットに `CLOUDFLARE_API_TOKEN` と `CLOUDFLARE_ACCOUNT_ID` を設定してください（未設定ならデプロイはスキップされます）。
+GitHub Actions（`.github/workflows/ci.yml`）はテスト・バランス確認・Windows 版と Web 版のビルドだけを行い、デプロイはしません（Cloudflare の Git 連携に任せます）。
 
 ## ライセンス
 
