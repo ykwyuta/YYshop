@@ -137,7 +137,8 @@ yyshop/
 - 図形は**SDF（符号付き距離場）シェーダ**で描く：角丸矩形・円・円弧（ドーナツグラフ）・線を、どの解像度でもアンチエイリアスつきで描ける
 - 画像（キャラクター・アイコン）は1枚のアトラスにまとめる
 - クリップ矩形のスタックでスクロール領域を切り抜く
-- Web 側は互換性を優先して **WebGL2 バックエンド**を標準にし、WebGPU が使える環境では WebGPU を使う
+- Web 側は互換性を優先して **WebGL2 バックエンド**を使う。WebGPU は iOS の Safari などで画面が真っ暗になる例があったため、URL に `?gpu=webgpu` をつけたときだけ試す
+  - パニックと GPU の検証エラーは画面の下に赤い帯で表示する（スマホでは開発者ツールが見られないため）
   - canvas は一度 WebGPU のコンテキストを取ると WebGL2 に切り替えられないため、surface を作る前にアダプタの有無だけを確認してから選ぶ
 
 ---
@@ -147,7 +148,7 @@ yyshop/
 | 項目 | Windows | Web (wasm32) |
 |------|---------|--------------|
 | イベントループ | `winit` | `winit`（web バックエンド、canvas に描画） |
-| 描画バックエンド | DX12（予備として Vulkan） | WebGL2（WebGPU があれば使用） |
+| 描画バックエンド | DX12（予備として Vulkan） | WebGL2（`?gpu=webgpu` で WebGPU） |
 | 時刻 | `std::time` | `web-time`（`performance.now()`） |
 | セーブ | `%APPDATA%\YYshop\saves\*.sav` | localStorage（Base64）。データが大きくなったら IndexedDB へ移行 |
 | 乱数シード | OS 乱数 | `crypto.getRandomValues` |
@@ -243,7 +244,7 @@ wasm-opt -Oz dist/pkg/juku_web_bg.wasm -o dist/pkg/juku_web_bg.wasm
 | `juku-sim` | 週次シミュレーション（集客・学習・ストレス・退塾・講師の疲労・会計・口コミ）、2 月の入試と進級、倫理イベント 4 種、教室長への業務委任 4 種、セーブ（postcard）。テストとヘッドレスのバランス確認つき |
 | `juku-render` | wgpu の 2D バッチレンダラ。角丸矩形・円弧・線・五芒星を SDF で描画。fontdue によるグリフアトラス |
 | `juku-ui` | 即時モード UI。縦積み＋列分割のレイアウト、慣性スクロール、トグル・ステッパー（長押し連続）・セグメント・星・メーター・モーダル、ドーナツ／棒／折れ線／レーダーグラフ、禁則処理つき折り返し |
-| `juku-platform` | winit 0.30 + wgpu 30。Windows（DX12/Vulkan）と Web（WebGPU → WebGL2 フォールバック）。マウス・タッチ・ホイール、高 DPI |
+| `juku-platform` | winit 0.30 + wgpu 30。Windows（DX12/Vulkan）と Web（WebGL2。`?gpu=webgpu` で WebGPU）。マウス・タッチ・ホイール、高 DPI |
 | `juku-app` | タイトル、教室・コース・集客・経理・年度の 5 タブ、判断イベントと合格発表のモーダル、自動保存 |
 | 配信 | `tools/build-web.sh` で `dist/` を生成（ファイル名ハッシュ・サイズチェック）、`wrangler.toml`（Workers 静的アセット）、GitHub Actions |
 

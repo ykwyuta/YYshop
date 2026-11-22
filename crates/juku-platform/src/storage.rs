@@ -205,6 +205,55 @@ pub(crate) fn show_error(msg: &str) {
     }
 }
 
+/// 動作中に起きた致命的なエラーを画面に重ねて表示する（Web のみ）。
+/// 読み込み中表示がもう消えていれば作り直す。
+#[allow(unused_variables)]
+pub fn show_fatal(msg: &str) {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let Some(doc) = web_sys::window().and_then(|w| w.document()) else { return };
+        let el = match doc.get_element_by_id("fatal") {
+            Some(el) => el,
+            None => {
+                let Ok(el) = doc.create_element("div") else { return };
+                el.set_id("fatal");
+                let _ = el.set_attribute(
+                    "style",
+                    "position:fixed;left:0;right:0;bottom:0;max-height:50%;overflow:auto;padding:12px 16px;\
+                     background:#3A1414;color:#FFD9D9;font:13px/1.5 system-ui,sans-serif;white-space:pre-wrap;z-index:10",
+                );
+                if let Some(body) = doc.body() {
+                    let _ = body.append_child(&el);
+                }
+                el
+            }
+        };
+        let prev = el.text_content().unwrap_or_default();
+        if prev.len() < 4000 {
+            let text = if prev.is_empty() {
+                format!("エラーが発生しました。この画面を開発者に送ってください。\n{msg}")
+            } else {
+                format!("{prev}\n{msg}")
+            };
+            el.set_text_content(Some(&text));
+        }
+    }
+}
+
+/// URL のクエリに `needle`（例 "gpu=webgpu"）が含まれるか（Web のみ）。
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+pub(crate) fn query_has(needle: &str) -> bool {
+    #[cfg(target_arch = "wasm32")]
+    {
+        web_sys::window().and_then(|w| w.location().search().ok()).is_some_and(|q| q.contains(needle))
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = needle;
+        false
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

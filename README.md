@@ -81,7 +81,7 @@ python3 -m http.server -d dist 8080                         # http://localhost:8
 ```
 
 `wasm-opt`（binaryen）が入っていれば自動でサイズを最適化します。
-描画は WebGPU が使えればそれを、使えなければ WebGL2 を使います。セーブデータは localStorage に保存されます。
+描画は WebGL2 を使います（iOS の Safari などで WebGPU だと画面が真っ暗になることがあったため。URL に `?gpu=webgpu` をつけると WebGPU を試せます）。動作中のエラーは画面の下に表示されます。セーブデータは localStorage に保存されます。
 
 ### Cloudflare へのデプロイ
 

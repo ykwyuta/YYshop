@@ -13,7 +13,11 @@ const ASSET_VERSION: &str = match option_env!("YYSHOP_ASSET_VERSION") {
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(start)]
 pub fn start() {
-    console_error_panic_hook::set_once();
+    // パニックはコンソールに加えて画面にも出す（スマホでは開発者ツールが見られないため）
+    std::panic::set_hook(Box::new(|info| {
+        console_error_panic_hook::hook(info);
+        juku_platform::show_fatal(&info.to_string());
+    }));
     let config = juku_platform::Config {
         title: "合格の街 〜塾長シミュレーター〜".into(),
         size: (440.0, 900.0),

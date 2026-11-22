@@ -145,20 +145,32 @@ pub fn draw(ui: &mut Ui, r: Rect, save: Option<&SaveSummary>, first_time: bool) 
     let logo_in = ease(since / 1.2);
     let lift = (1.0 - logo_in) * 24.0;
     let cx = r.x + r.w * 0.5;
-    // 下のメニューと重ならないよう、低い画面ではロゴを上へ寄せる
     let card_h = if save.is_some() { 128.0 } else { 0.0 };
     let panel_h = card_h + 56.0 + 12.0 + 48.0 + 40.0;
-    let menu_top = r.bottom() - panel_h - 64.0;
-    let ly = (r.y + r.h * 0.12).min(menu_top - 224.0).max(r.y + 8.0) + lift;
-    emblem(ui, cx, ly + 40.0, 40.0, logo_in);
-    ui.text_in(
-        Rect::new(r.x, ly + 92.0, r.w, 22.0),
-        "中学受験塾 経営シミュレーション",
-        t.font_small + 1.0,
-        FontWeight::Regular,
-        Color::hex(0xCFE3DA).with_alpha(logo_in),
-        Align::Center,
-    );
+    // 横向きのスマホなど低い画面では、余白を詰め、紋章→副題の順に省いて下のメニューと重ならないようにする
+    let full_h = 224.0;
+    let compact = r.h < full_h + panel_h + 64.0 + 24.0;
+    let menu_top = r.bottom() - panel_h - if compact { 28.0 } else { 64.0 };
+    let avail = menu_top - r.y - 8.0;
+    let show_emblem = avail >= full_h + 24.0;
+    let show_sub = avail >= full_h - 84.0;
+    let logo_h = full_h - if show_emblem { 0.0 } else { 84.0 } - if show_sub { 0.0 } else { 20.0 };
+    let top = (r.y + r.h * 0.12).min(menu_top - logo_h).max(r.y + 8.0) + lift;
+    // 題字の位置を、紋章（92）と副題（20）がある前提の座標に合わせる
+    let ly = top - if show_emblem { 0.0 } else { 84.0 } - if show_sub { 0.0 } else { 20.0 };
+    if show_emblem {
+        emblem(ui, cx, ly + 40.0, 40.0, logo_in);
+    }
+    if show_sub {
+        ui.text_in(
+            Rect::new(r.x, ly + 92.0, r.w, 22.0),
+            "中学受験塾 経営シミュレーション",
+            t.font_small + 1.0,
+            FontWeight::Regular,
+            Color::hex(0xCFE3DA).with_alpha(logo_in),
+            Align::Center,
+        );
+    }
     // 影をつけた題字
     let title_r = Rect::new(r.x, ly + 112.0, r.w, 70.0);
     ui.text_in(
