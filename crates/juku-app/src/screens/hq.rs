@@ -7,6 +7,7 @@ use juku_sim::{Calendar, ListingStatus, Season, TeacherKind, World};
 use juku_ui::{Align, ButtonStyle, Id, Series, Ui};
 
 use crate::fmt::{format_yen, pct};
+use crate::portraits::{manager_expression, Portrait};
 
 pub enum HqAction {
     ShowExam(usize),
@@ -197,12 +198,13 @@ fn classrooms(ui: &mut Ui, world: &World, action: &mut Option<HqAction>) {
             let net = c.last_report().map(|r| r.pnl.net_profit()).unwrap_or(0);
             let nc = if net >= 0 { t.accent } else { t.negative };
             ui.text_in(r, &format!("純利益 {}/週", format_yen(net)), t.font_body, FontWeight::Bold, nc, Align::Right);
-            ui.caption(&format!(
-                "{}・教室長 {}・講師 {} 人",
-                world.areas[c.area].name,
-                c.manager.name,
-                c.teachers.len()
-            ));
+            let r = ui.alloc(38.0);
+            Portrait::manager(&c.manager, manager_expression(world, ci)).draw(ui, Rect::new(r.x, r.y, r.h, r.h));
+            let details =
+                format!("{}・教室長 {}・講師 {} 人", world.areas[c.area].name, c.manager.name, c.teachers.len());
+            let text = Rect::new(r.x + 48.0, r.y, r.w - 48.0, r.h);
+            let details = ui.fit_text(&details, t.font_small, FontWeight::Regular, text.w);
+            ui.text_in(text, &details, t.font_small, FontWeight::Regular, t.text_dim, Align::Left);
             let r = ui.alloc(22.0);
             ui.text_in(
                 r,
@@ -522,9 +524,11 @@ fn stars(ui: &mut Ui, world: &World, action: &mut Option<HqAction>) {
         let color = Color::rgb(c.color[0], c.color[1], c.color[2]);
         ui.card(14.0, |ui| {
             ui.set_spacing(6.0);
-            let r = ui.alloc(24.0);
-            ui.text_in(r, &format!("{} 先生", star.name), t.font_body, FontWeight::Bold, t.text, Align::Left);
-            ui.text_in(r, &c.name, t.font_small, FontWeight::Bold, color, Align::Right);
+            let r = ui.alloc(48.0);
+            Portrait::teacher(star).draw(ui, Rect::new(r.x, r.y, r.h, r.h));
+            let name_row = Rect::new(r.x + 58.0, r.y, r.w - 58.0, 24.0);
+            ui.text_in(name_row, &format!("{} 先生", star.name), t.font_body, FontWeight::Bold, t.text, Align::Left);
+            ui.text_in(name_row.translate(0.0, 24.0), &c.name, t.font_small, FontWeight::Bold, color, Align::Left);
             ui.kv_row("授業力 / 面倒見", &format!("{} / {}", star.skill, star.care), None);
             ui.kv_row("いまの年俸", &format_yen(star.pay), None);
             if c.offer_cooldown > 0 {
@@ -545,7 +549,18 @@ fn stars(ui: &mut Ui, world: &World, action: &mut Option<HqAction>) {
             ui.set_spacing(4.0);
             for (room, s) in ours {
                 let kind = if s.kind == TeacherKind::Pro { "" } else { "（学生）" };
-                ui.kv_row(&format!("{}{kind}", s.name), &format!("{room}・授業力 {}", s.skill), Some(t.star));
+                let r = ui.alloc(40.0);
+                Portrait::teacher(s).draw(ui, Rect::new(r.x, r.y, r.h, r.h));
+                let name_row = Rect::new(r.x + 50.0, r.y, r.w - 50.0, 20.0);
+                ui.text_in(name_row, &format!("{}{kind}", s.name), t.font_body, FontWeight::Bold, t.text, Align::Left);
+                ui.text_in(
+                    name_row.translate(0.0, 20.0),
+                    &format!("{room}・授業力 {}", s.skill),
+                    t.font_small,
+                    FontWeight::Regular,
+                    t.star,
+                    Align::Left,
+                );
             }
         });
     }

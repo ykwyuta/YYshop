@@ -1,11 +1,11 @@
 //! 教室タブ：口コミ・気になる生徒・教室長・講師。
 
 use juku_render::{Color, FontWeight, Rect};
-use juku_sim::{Delegation, TeacherKind, World};
+use juku_sim::{Delegation, Teacher, TeacherKind, World};
 use juku_ui::{Align, ButtonStyle, Id, Ui};
 
-use crate::art;
 use crate::fmt::format_yen;
+use crate::portraits::{manager_expression, Portrait};
 
 pub fn draw(ui: &mut Ui, world: &mut World, ci: usize) {
     reviews(ui, world, ci);
@@ -94,9 +94,19 @@ fn concerns(ui: &mut Ui, world: &World, ci: usize) {
         let school = &world.schools[s.target_school];
         ui.card(14.0, |ui| {
             ui.set_spacing(6.0);
-            let r = ui.alloc(24.0);
-            ui.text_in(r, &format!("{}（{}年）", s.name, s.grade), t.font_body, FontWeight::Bold, t.text, Align::Left);
-            ui.text_in(r, &format!("偏差値 {:.1}", s.deviation), t.font_body, FontWeight::Bold, t.text, Align::Right);
+            let r = ui.alloc(48.0);
+            Portrait::student(s).draw(ui, Rect::new(r.x, r.y, r.h, r.h));
+            let text = Rect::new(r.x + 58.0, r.y, r.w - 58.0, r.h);
+            let score = format!("偏差値 {:.1}", s.deviation);
+            let score_width = ui.measure(&score, t.font_body, FontWeight::Bold);
+            let name = ui.fit_text(
+                &format!("{}（{}年）", s.name, s.grade),
+                t.font_body,
+                FontWeight::Bold,
+                text.w - score_width - 8.0,
+            );
+            ui.text_in(text, &name, t.font_body, FontWeight::Bold, t.text, Align::Left);
+            ui.text_in(text, &score, t.font_body, FontWeight::Bold, t.text, Align::Right);
             ui.caption(&format!("第一志望：{}（{:.0}）・保護者：{}", school.name, school.deviation, s.parent.label()));
             let r = ui.alloc(20.0);
             let half = r.w * 0.5 - 6.0;
@@ -130,9 +140,9 @@ fn manager(ui: &mut Ui, world: &mut World, ci: usize) {
     ui.card(16.0, |ui| {
         ui.set_spacing(12.0);
         let r = ui.alloc(150.0);
-        let portrait = Rect::new(r.x, r.y, 116.0, 150.0);
+        let portrait = Rect::new(r.x, r.y + 8.0, 116.0, 116.0);
         ui.dl.rect_border(portrait, t.track, 12.0, 1.5, t.card_border);
-        art::person(ui, portrait.shrink(8.0), art::Look::from_name(&m.name), true);
+        Portrait::manager(&m, manager_expression(world, ci)).draw(ui, portrait.shrink(4.0));
         let x = r.x + 132.0;
         let w = r.right() - x;
         ui.text_in(Rect::new(x, r.y, w, 28.0), &m.name, t.font_title, FontWeight::Bold, t.text, Align::Left);
@@ -196,16 +206,7 @@ fn teachers(ui: &mut Ui, world: &mut World, ci: usize) {
     for tc in &world.classrooms[ci].teachers {
         ui.card(14.0, |ui| {
             ui.set_spacing(6.0);
-            let r = ui.alloc(24.0);
-            ui.text_in(r, &tc.name, t.font_body, FontWeight::Bold, t.text, Align::Left);
-            let kind_color = if tc.kind == TeacherKind::Pro { t.series[1] } else { t.series[4] };
-            let nw = ui.measure(&tc.name, t.font_body, FontWeight::Bold);
-            ui.badge_at(r.x + nw + 10.0, r.y + 1.0, tc.kind.label(), kind_color);
-            let pay = match tc.kind {
-                TeacherKind::Pro => format!("年俸 {}", format_yen(tc.pay)),
-                TeacherKind::Student => format!("時給 {}", format_yen(tc.pay)),
-            };
-            ui.text_in(r, &pay, t.font_small, FontWeight::Regular, t.text_dim, Align::Right);
+            teacher_header(ui, tc);
             teacher_meters(ui, tc.skill, tc.care, Some(tc.fatigue));
             let r = ui.alloc(34.0);
             let b = Rect::new(r.right() - 96.0, r.y, 96.0, 34.0);
@@ -224,16 +225,7 @@ fn teachers(ui: &mut Ui, world: &mut World, ci: usize) {
     for (i, c) in world.classrooms[ci].candidates.iter().enumerate() {
         ui.card(14.0, |ui| {
             ui.set_spacing(6.0);
-            let r = ui.alloc(24.0);
-            ui.text_in(r, &c.name, t.font_body, FontWeight::Bold, t.text, Align::Left);
-            let kind_color = if c.kind == TeacherKind::Pro { t.series[1] } else { t.series[4] };
-            let nw = ui.measure(&c.name, t.font_body, FontWeight::Bold);
-            ui.badge_at(r.x + nw + 10.0, r.y + 1.0, c.kind.label(), kind_color);
-            let pay = match c.kind {
-                TeacherKind::Pro => format!("年俸 {}", format_yen(c.pay)),
-                TeacherKind::Student => format!("時給 {}", format_yen(c.pay)),
-            };
-            ui.text_in(r, &pay, t.font_small, FontWeight::Regular, t.text_dim, Align::Right);
+            teacher_header(ui, c);
             teacher_meters(ui, c.skill, c.care, None);
             let r = ui.alloc(38.0);
             let b = Rect::new(r.right() - 110.0, r.y, 110.0, 38.0);
@@ -257,6 +249,25 @@ fn teachers(ui: &mut Ui, world: &mut World, ci: usize) {
     if world.classrooms[ci].candidates.is_empty() {
         ui.caption("今月の候補はもういません。");
     }
+}
+
+fn teacher_header(ui: &mut Ui, teacher: &Teacher) {
+    let t = ui.theme;
+    let r = ui.alloc(52.0);
+    Portrait::teacher(teacher).draw(ui, Rect::new(r.x, r.y, r.h, r.h));
+    let name_row = Rect::new(r.x + 62.0, r.y + 2.0, r.w - 62.0, 24.0);
+    let kind = teacher.kind.label();
+    let kind_color = if teacher.kind == TeacherKind::Pro { t.series[1] } else { t.series[4] };
+    let badge_width = ui.measure(kind, t.font_small, FontWeight::Bold) + 14.0;
+    let name = ui.fit_text(&teacher.name, t.font_body, FontWeight::Bold, name_row.w - badge_width - 8.0);
+    ui.text_in(name_row, &name, t.font_body, FontWeight::Bold, t.text, Align::Left);
+    let nw = ui.measure(&name, t.font_body, FontWeight::Bold);
+    ui.badge_at(name_row.x + nw + 8.0, name_row.y + 1.0, kind, kind_color);
+    let pay = match teacher.kind {
+        TeacherKind::Pro => format!("年俸 {}", format_yen(teacher.pay)),
+        TeacherKind::Student => format!("時給 {}", format_yen(teacher.pay)),
+    };
+    ui.text_in(name_row.translate(0.0, 24.0), &pay, t.font_small, FontWeight::Regular, t.text_dim, Align::Left);
 }
 
 fn teacher_meters(ui: &mut Ui, skill: u32, care: u32, fatigue: Option<f64>) {

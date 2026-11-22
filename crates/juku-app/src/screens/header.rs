@@ -4,8 +4,8 @@ use juku_render::{Color, FontWeight, Rect};
 use juku_sim::World;
 use juku_ui::{Align, ButtonStyle, Ui};
 
-use crate::art;
 use crate::fmt::format_yen;
+use crate::portraits::{manager_expression, Expression, Portrait};
 
 /// (週を進めたか, 切り替え先の教室)
 /// ヘッダーで起きたこと。
@@ -157,8 +157,8 @@ pub fn draw(ui: &mut Ui, r: Rect, world: &mut World, ci: usize, reports: usize) 
     // 3 行目：教室長のひとこと ＋ 秘書を呼ぶボタン
     let sec = Rect::new(r.right() - pad - 76.0, r.y + 104.0, 76.0, 40.0);
     let bubble = Rect::new(r.x + pad, r.y + 106.0, r.w - pad * 2.0 - 84.0, 36.0);
-    let look = art::Look::from_name(&world.classrooms[ci].manager.name);
-    art::person(ui, Rect::new(bubble.x, bubble.y - 6.0, 36.0, 42.0), look, true);
+    Portrait::manager(&world.classrooms[ci].manager, manager_expression(world, ci))
+        .draw(ui, Rect::new(bubble.x, bubble.y, 36.0, 36.0));
     let msg_r = Rect::new(bubble.x + 44.0, bubble.y + 2.0, bubble.w - 44.0, 32.0);
     ui.dl.rect(msg_r, Color::WHITE.with_alpha(0.06), 10.0);
     let msg = manager_message(world, ci);
@@ -168,7 +168,8 @@ pub fn draw(ui: &mut Ui, r: Rect, world: &mut World, ci: usize, reports: usize) 
     let pressed = ui.pressed(sec);
     let fill = if pressed { t.accent_dark } else { t.card };
     ui.dl.rect_border(sec, fill, 12.0, 1.5, t.accent);
-    art::person(ui, Rect::new(sec.x + 2.0, sec.y + 1.0, 30.0, 38.0), crate::screens::secretary::look(), true);
+    let expression = if reports > 0 { Expression::Focused } else { Expression::Neutral };
+    Portrait::secretary(expression).draw(ui, Rect::new(sec.x + 5.0, sec.y + 6.0, 28.0, 28.0));
     ui.text_in(
         Rect::new(sec.x + 32.0, sec.y, sec.w - 34.0, sec.h),
         "秘書",

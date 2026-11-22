@@ -25,7 +25,12 @@ pub struct Renderer {
 }
 
 impl Renderer {
-    pub fn new(device: &wgpu::Device, format: wgpu::TextureFormat) -> Self {
+    pub fn new(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        format: wgpu::TextureFormat,
+        sprite_atlas_png: Option<&[u8]>,
+    ) -> Result<Self, String> {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("juku-render shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
@@ -52,6 +57,14 @@ impl Renderer {
             label: Some("atlas sampler"),
             mag_filter: wgpu::FilterMode::Nearest,
             min_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
+        let sprites = Self::load_sprites(device, queue, sprite_atlas_png)?;
+        let sprite_view = sprites.create_view(&wgpu::TextureViewDescriptor::default());
+        let sprite_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("sprite sampler"),
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
             ..Default::default()
         });
 
@@ -84,6 +97,22 @@ impl Renderer {
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 4,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
             ],
         });
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -93,6 +122,8 @@ impl Renderer {
                 wgpu::BindGroupEntry { binding: 0, resource: globals.as_entire_binding() },
                 wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&atlas_view) },
                 wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(&sampler) },
+                wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::TextureView(&sprite_view) },
+                wgpu::BindGroupEntry { binding: 4, resource: wgpu::BindingResource::Sampler(&sprite_sampler) },
             ],
         });
 
@@ -139,7 +170,52 @@ impl Renderer {
         let instance_capacity = 4096;
         let instances = Self::make_instance_buffer(device, instance_capacity);
 
-        Renderer { pipeline, bind_group, globals, instances, instance_capacity, atlas, srgb_target: format.is_srgb() }
+        Ok(Renderer {
+            pipeline,
+            bind_group,
+            globals,
+            instances,
+            instance_capacity,
+            atlas,
+            srgb_target: format.is_srgb(),
+        })
+    }
+
+    fn load_sprites(device: &wgpu::Device, queue: &wgpu::Queue, png: Option<&[u8]>) -> Result<wgpu::Texture, String> {
+        let (width, height, pixels) = if let Some(bytes) = png {
+            let mut decoder = png::Decoder::new(std::io::Cursor::new(bytes));
+            decoder.set_transformations(png::Transformations::normalize_to_color8());
+            let mut reader = decoder.read_info().map_err(|e| format!("sprite atlas: {e}"))?;
+            let mut pixels = vec![0; reader.output_buffer_size().ok_or("sprite atlas too large")?];
+            let info = reader.next_frame(&mut pixels).map_err(|e| format!("sprite atlas: {e}"))?;
+            pixels.truncate(info.buffer_size());
+            let pixels = match info.color_type {
+                png::ColorType::Rgba => pixels,
+                png::ColorType::Rgb => pixels.chunks_exact(3).flat_map(|c| [c[0], c[1], c[2], 255]).collect(),
+                _ => return Err("sprite atlas must be RGB or RGBA".into()),
+            };
+            (info.width, info.height, pixels)
+        } else {
+            (1, 1, vec![0; 4])
+        };
+        if width.max(height) > device.limits().max_texture_dimension_2d {
+            return Err("sprite atlas exceeds device texture limits".into());
+        }
+        Ok(device.create_texture_with_data(
+            queue,
+            &wgpu::TextureDescriptor {
+                label: Some("sprite atlas"),
+                size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            },
+            wgpu::util::TextureDataOrder::LayerMajor,
+            &pixels,
+        ))
     }
 
     fn make_instance_buffer(device: &wgpu::Device, cap: usize) -> wgpu::Buffer {

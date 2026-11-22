@@ -24,6 +24,8 @@ pub use storage::{show_fatal, Storage};
 
 /// アプリ本体（画面）が実装する。
 pub trait App: 'static {
+    const SPRITE_ATLAS_PNG: Option<&'static [u8]> = None;
+
     /// 1 フレーム分の UI を組み立てる。
     fn update(&mut self, ui: &mut Ui, ctx: &mut Ctx);
 
@@ -150,7 +152,12 @@ pub fn run<A: App>(config: Config, make_app: impl FnOnce(&mut Storage) -> A + 's
     }
 }
 
-async fn init_gfx(instance: wgpu::Instance, window: Arc<Window>, size: PhysicalSize<u32>) -> Result<Gfx, String> {
+async fn init_gfx(
+    instance: wgpu::Instance,
+    window: Arc<Window>,
+    size: PhysicalSize<u32>,
+    sprite_atlas_png: Option<&[u8]>,
+) -> Result<Gfx, String> {
     let surface = instance.create_surface(window).map_err(|e| format!("surface: {e}"))?;
     let adapter = instance
         .request_adapter(&wgpu::RequestAdapterOptions {
@@ -199,7 +206,7 @@ async fn init_gfx(instance: wgpu::Instance, window: Arc<Window>, size: PhysicalS
     config.present_mode = wgpu::PresentMode::AutoVsync;
     config.alpha_mode = caps.alpha_modes[0];
     surface.configure(&device, &config);
-    let renderer = Renderer::new(&device, format);
+    let renderer = Renderer::new(&device, &queue, format, sprite_atlas_png)?;
     Ok(Gfx { surface, device, queue, config, renderer })
 }
 
@@ -210,7 +217,11 @@ async fn init_gfx(instance: wgpu::Instance, window: Arc<Window>, size: PhysicalS
 /// canvas は一度 WebGPU のコンテキストを取ると WebGL2 に切り替えられないため、
 /// 先に surface なしでアダプタの有無だけを確かめる。
 #[cfg(target_arch = "wasm32")]
-async fn init_gfx_web(window: Arc<Window>, size: PhysicalSize<u32>) -> Result<Gfx, String> {
+async fn init_gfx_web(
+    window: Arc<Window>,
+    size: PhysicalSize<u32>,
+    sprite_atlas_png: Option<&[u8]>,
+) -> Result<Gfx, String> {
     let make = |backends| {
         wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends,
@@ -223,11 +234,11 @@ async fn init_gfx_web(window: Arc<Window>, size: PhysicalSize<u32>) -> Result<Gf
         if probe.is_ok() {
             drop(probe);
             log::info!("WebGPU で描画します");
-            return init_gfx(webgpu, window, size).await;
+            return init_gfx(webgpu, window, size, sprite_atlas_png).await;
         }
         log::info!("WebGPU が使えないため WebGL2 で描画します");
     }
-    init_gfx(make(wgpu::Backends::GL), window, size).await
+    init_gfx(make(wgpu::Backends::GL), window, size, sprite_atlas_png).await
 }
 
 /// 描画先の物理ピクセルサイズ。
@@ -374,9 +385,8 @@ impl<A: App> ApplicationHandler<UserEvent> for Handler<A> {
                 panic!("ネイティブ版はフォントを埋め込む必要があります");
             };
             let text = TextSystem::new(regular, bold).expect("font");
-            let gfx = pollster::block_on(init_gfx(instance, window.clone(), size)).unwrap_or_else(|e| {
-                panic!("GPU の初期化に失敗しました: {e}");
-            });
+            let gfx = pollster::block_on(init_gfx(instance, window.clone(), size, A::SPRITE_ATLAS_PNG))
+                .unwrap_or_else(|e| panic!("GPU の初期化に失敗しました: {e}"));
             self.gfx = Some(gfx);
             self.text = Some(text);
             window.request_redraw();
@@ -404,9 +414,9 @@ impl<A: App> ApplicationHandler<UserEvent> for Handler<A> {
                 };
                 let result = match fonts {
                     Ok((r, b)) => match TextSystem::new(&r, &b) {
-                        Ok(text) => {
-                            init_gfx_web(window, size).await.map(|g| UserEvent::Ready(Box::new(g), Box::new(text)))
-                        }
+                        Ok(text) => init_gfx_web(window, size, A::SPRITE_ATLAS_PNG)
+                            .await
+                            .map(|g| UserEvent::Ready(Box::new(g), Box::new(text))),
                         Err(e) => Err(format!("font: {e}")),
                     },
                     Err(e) => Err(e),

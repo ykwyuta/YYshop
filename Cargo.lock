@@ -848,6 +848,7 @@ dependencies = [
  "bytemuck",
  "fontdue",
  "log",
+ "png",
  "wgpu",
 ]
 

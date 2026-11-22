@@ -4,6 +4,7 @@ use juku_render::{Color, Rect};
 use juku_sim::World;
 use juku_ui::{ButtonStyle, Ui};
 
+use crate::portraits::{Expression, Portrait};
 use crate::screens::secretary::{self, Button};
 use crate::Tab;
 
@@ -251,7 +252,16 @@ impl Tutorial {
             buttons.push(Button { label: "スキップ", style: ButtonStyle::Ghost });
         }
         buttons.push(Button { label: next_label, style: ButtonStyle::Primary });
-        let clicked = secretary::window(ui, area, None, step.title, &body, Some((self.step, all.len())), &buttons);
+        let expression = if self.step == 0 {
+            Expression::Neutral
+        } else if last {
+            Expression::Happy
+        } else {
+            Expression::Focused
+        };
+        let portrait = Portrait::secretary(expression);
+        let clicked =
+            secretary::window(ui, area, portrait, None, step.title, &body, Some((self.step, all.len())), &buttons);
         match clicked {
             Some(i) if !last && i == 0 => Outcome::Done,
             Some(_) => {

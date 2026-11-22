@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 wgpu.workspace = true
 fontdue.workspace = true
+png.workspace = true
 bytemuck.workspace = true
 log.workspace = true
 
