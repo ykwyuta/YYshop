@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="theme-color" content="#14201B">
+  <meta name="description" content="中学受験塾の経営シミュレーションゲーム">
+  <link rel="icon" href="assets/icon/icon.svg?v=__V__" type="image/svg+xml">
+  <link rel="icon" href="assets/icon/icon-32.png?v=__V__" sizes="32x32" type="image/png">
+  <link rel="apple-touch-icon" href="assets/icon/icon-180.png?v=__V__">
+  <link rel="manifest" href="manifest.webmanifest?v=__V__">
+  <title>合格の街 〜塾長シミュレーター〜</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #1E2B26; overflow: hidden; }
+    #app { display: block; width: 100vw; height: 100vh; height: 100dvh; touch-action: none; outline: none; }
+    #loading {
+      position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+      color: #9DB0A6; font: 15px/1.6 system-ui, sans-serif; padding: 0 24px; text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="app" tabindex="0"></canvas>
+  <div id="loading">読み込み中…</div>
+  <noscript>このゲームを遊ぶには JavaScript を有効にしてください。</noscript>
+  <script type="module">
+    import init from "./pkg/__JS__";
+    init({ module_or_path: "./pkg/__WASM__" }).catch((e) => {
+      const el = document.getElementById("loading");
+      if (el) el.textContent = "起動できませんでした：" + e;
+      console.error(e);
+    });
+  </script>
+</body>
+</html>

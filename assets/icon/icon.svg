@@ -1,0 +1,104 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- 合格の街：上り坂の街並み（＝成長する塾）の頂上に角帽、桜が舞う -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0.35" y2="1">
+      <stop offset="0" stop-color="#2F5A45"/>
+      <stop offset="0.55" stop-color="#1A3027"/>
+      <stop offset="1" stop-color="#0C1511"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.70" cy="0.28" r="0.42">
+      <stop offset="0" stop-color="#FFD27A" stop-opacity="0.26"/>
+      <stop offset="1" stop-color="#F5C35A" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="bar" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFC768"/>
+      <stop offset="1" stop-color="#D9781E"/>
+    </linearGradient>
+    <linearGradient id="barSide" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#B85E14"/>
+      <stop offset="1" stop-color="#8A430C"/>
+    </linearGradient>
+    <linearGradient id="board" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#DCD7C6"/>
+    </linearGradient>
+    <linearGradient id="skull" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#E9E4D3"/>
+      <stop offset="1" stop-color="#B9B3A0"/>
+    </linearGradient>
+    <clipPath id="tile"><rect width="1024" height="1024" rx="228"/></clipPath>
+  </defs>
+
+  <g clip-path="url(#tile)">
+    <rect width="1024" height="1024" fill="url(#bg)"/>
+    <rect width="1024" height="1024" fill="url(#glow)"/>
+    <!-- 黒板のチョーク跡 -->
+    <path d="M90 905 C 300 870, 620 880, 940 850" stroke="#FFFFFF" stroke-opacity="0.07" stroke-width="26" fill="none" stroke-linecap="round"/>
+
+    <!-- 上り坂の街並み（棒グラフ） -->
+    <g>
+      <rect x="200" y="606" width="168" height="230" rx="18" fill="url(#bar)"/>
+      <rect x="352" y="606" width="34" height="230" rx="10" fill="url(#barSide)"/>
+      <rect x="412" y="486" width="168" height="350" rx="18" fill="url(#bar)"/>
+      <rect x="564" y="486" width="34" height="350" rx="10" fill="url(#barSide)"/>
+      <rect x="624" y="352" width="168" height="484" rx="18" fill="url(#bar)"/>
+      <rect x="776" y="352" width="34" height="484" rx="10" fill="url(#barSide)"/>
+      <!-- 窓 -->
+      <g fill="#7A3A08" fill-opacity="0.55">
+        <rect x="232" y="650" width="38" height="44" rx="7"/><rect x="298" y="650" width="38" height="44" rx="7"/>
+        <rect x="232" y="724" width="38" height="44" rx="7"/><rect x="298" y="724" width="38" height="44" rx="7"/>
+        <rect x="444" y="530" width="38" height="44" rx="7"/><rect x="510" y="530" width="38" height="44" rx="7"/>
+        <rect x="444" y="604" width="38" height="44" rx="7"/><rect x="510" y="604" width="38" height="44" rx="7"/>
+        <rect x="444" y="678" width="38" height="44" rx="7"/><rect x="510" y="678" width="38" height="44" rx="7"/>
+        <rect x="656" y="470" width="38" height="44" rx="7"/><rect x="722" y="470" width="38" height="44" rx="7"/>
+        <rect x="656" y="544" width="38" height="44" rx="7"/><rect x="722" y="544" width="38" height="44" rx="7"/>
+        <rect x="656" y="618" width="38" height="44" rx="7"/><rect x="722" y="618" width="38" height="44" rx="7"/>
+        <rect x="656" y="692" width="38" height="44" rx="7"/><rect x="722" y="692" width="38" height="44" rx="7"/>
+      </g>
+      <!-- 灯りのついた窓 -->
+      <g fill="#FFF3C4">
+        <rect x="298" y="724" width="38" height="44" rx="7"/>
+        <rect x="444" y="604" width="38" height="44" rx="7"/>
+        <rect x="722" y="470" width="38" height="44" rx="7"/>
+        <rect x="656" y="618" width="38" height="44" rx="7"/>
+      </g>
+    </g>
+    <!-- 地面（チョークの線） -->
+    <rect x="150" y="826" width="724" height="30" rx="15" fill="#F3F1E7"/>
+
+    <!-- 上昇の矢印（チョーク） -->
+    <path d="M196 560 C 300 520, 380 450, 470 420 S 560 330, 600 300" stroke="#F3F1E7" stroke-width="22" fill="none" stroke-linecap="round" stroke-dasharray="2 46"/>
+
+    <!-- 角帽 -->
+    <g transform="rotate(-10 716 262)">
+      <path d="M612 268 L612 340 C 660 372, 772 372, 820 340 L820 268 Z" fill="url(#skull)"/>
+      <path d="M716 150 L928 240 L716 330 L504 240 Z" fill="url(#board)"/>
+      <path d="M504 240 L716 330 L928 240 L928 252 L716 342 L504 252 Z" fill="#B9B3A0"/>
+      <circle cx="716" cy="240" r="15" fill="#F2B63A"/>
+      <!-- 房 -->
+      <path d="M716 240 L872 270 L872 356" stroke="#F2B63A" stroke-width="10" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M856 352 L888 352 L898 420 L846 420 Z" fill="#F2B63A"/>
+    </g>
+
+    <!-- 桜 -->
+    <g transform="translate(262 254)">
+      <g fill="#F7A8C2">
+        <path id="p" d="M0 -12 C -46 -40, -54 -100, -16 -122 L 0 -104 L 16 -122 C 54 -100, 46 -40, 0 -12 Z"/>
+        <use href="#p" transform="rotate(72)"/>
+        <use href="#p" transform="rotate(144)"/>
+        <use href="#p" transform="rotate(216)"/>
+        <use href="#p" transform="rotate(288)"/>
+      </g>
+      <circle r="24" fill="#FFE07A"/>
+      <circle r="11" fill="#F29A3A"/>
+    </g>
+    <!-- 舞う花びら -->
+    <path d="M430 196 c -18 -14 -16 -40 4 -46 l 6 10 l 8 -8 c 18 12 6 40 -18 44 z" fill="#F7A8C2" transform="rotate(25 440 175)"/>
+    <path d="M150 440 c -14 -11 -12 -31 3 -36 l 5 8 l 6 -6 c 14 9 5 31 -14 34 z" fill="#F7A8C2" fill-opacity="0.85" transform="rotate(-30 158 424)"/>
+    <!-- 縁のハイライト -->
+    <rect x="6" y="6" width="1012" height="1012" rx="222" fill="none" stroke="#FFFFFF" stroke-opacity="0.10" stroke-width="8"/>
+    <!-- きらめき -->
+    <path d="M900 120 l 12 34 l 34 12 l -34 12 l -12 34 l -12 -34 l -34 -12 l 34 -12 z" fill="#FFF3C4"/>
+    <path d="M560 112 l 7 20 l 20 7 l -20 7 l -7 20 l -7 -20 l -20 -7 l 20 -7 z" fill="#FFF3C4" fill-opacity="0.8"/>
+  </g>
+</svg>

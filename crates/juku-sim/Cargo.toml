@@ -1,0 +1,15 @@
+[package]
+name = "juku-sim"
+description = "中学受験塾経営シミュレーションのゲームロジック（描画・OS 非依存、決定論的）"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+
+[dev-dependencies]
+postcard.workspace = true
+
+[lints]
+workspace = true

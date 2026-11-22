@@ -1,0 +1,15 @@
+[package]
+name = "juku-render"
+description = "wgpu ベースの 2D バッチレンダラ（SDF 図形・テキスト）"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+wgpu.workspace = true
+fontdue.workspace = true
+bytemuck.workspace = true
+log.workspace = true
+
+[lints]
+workspace = true

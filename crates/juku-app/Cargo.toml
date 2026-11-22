@@ -1,0 +1,17 @@
+[package]
+name = "juku-app"
+description = "画面とゲーム進行"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+juku-sim.workspace = true
+juku-ui.workspace = true
+juku-render.workspace = true
+juku-platform.workspace = true
+postcard.workspace = true
+log.workspace = true
+
+[lints]
+workspace = true
