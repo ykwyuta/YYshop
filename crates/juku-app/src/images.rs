@@ -1,7 +1,6 @@
 //! 地図・街・校舎の画像。
 //!
-//! いまは `tools/gen_placeholder_images.py` で作った仮の画像が入っている。本番の画像は同じパスに上書きする
-//! （一覧と生成用のプロンプトは `docs/images/README.md`）。
+//! 絵は `tools/gen_images.py` がフラットなイラスト調で描く（一覧と描き方は `docs/images/README.md`）。
 //! Windows 版は実行ファイルに埋め込み（隣に同じパスのファイルがあればそちらを優先）、Web 版は fetch する。
 
 use juku_render::{Color, FontWeight, Rect};

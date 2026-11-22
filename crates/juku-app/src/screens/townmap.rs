@@ -656,7 +656,7 @@ fn detail(ui: &mut Ui, world: &World, a: usize, action: &mut Option<HqAction>) {
         ui.set_spacing(6.0);
         // 街の風景（未生成）
         let w = ui.width();
-        let img = ui.alloc((w * 9.0 / 16.0).min(200.0));
+        let img = ui.alloc((w * 9.0 / 16.0).min(360.0));
         images::picture(ui, img, &format!("{}の街並み", area.name), &images::town_file(&area.name), t.series[4]);
         let r = ui.alloc(26.0);
         let title = area.name.clone();
@@ -737,7 +737,7 @@ fn detail(ui: &mut Ui, world: &World, a: usize, action: &mut Option<HqAction>) {
             State::Ours(ci) => {
                 let c = &world.classrooms[ci];
                 let w = ui.width();
-                let img = ui.alloc((w * 9.0 / 16.0).min(180.0));
+                let img = ui.alloc((w * 9.0 / 16.0).min(360.0));
                 images::picture(ui, img, &format!("{}の校舎", c.name), &images::school_file(&area.name), t.accent);
                 ui.label_ex(
                     &format!("{}：在籍 {} 人・講師 {} 人", c.name, c.students.len(), c.teachers.len()),

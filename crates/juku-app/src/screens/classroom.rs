@@ -24,7 +24,7 @@ fn building(ui: &mut Ui, world: &World, ci: usize) {
     ui.card(12.0, |ui| {
         ui.set_spacing(6.0);
         let w = ui.width();
-        let img = ui.alloc((w * 9.0 / 21.0).clamp(120.0, 220.0));
+        let img = ui.alloc((w * 0.5).clamp(140.0, 280.0));
         crate::images::picture(
             ui,
             img,

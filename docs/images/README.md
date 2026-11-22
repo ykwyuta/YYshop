@@ -1,93 +1,87 @@
-# 画像リスト（地図・街・校舎）
+# 地図・街・校舎の絵
 
-首都圏攻略マップ・街・校舎の画像は、あとで画像生成で作ります。今は `tools/gen_placeholder_images.py` で作った**仮の画像**（「仮画像」の印つき）が下の表のパスに入っていて、ゲームはそれを読み込んで表示しています。
-
-- 合計 **33 枚**：地図 1 枚、街 16 枚、校舎 16 枚
-- 置き場所：`assets/images/` の下（下の表のパス）。形式は **PNG**
-
-## 本番の画像に差し替える
-
-1. 生成した画像を、同じパス・同じファイル名（PNG）で上書きする。大きさは下の表のとおり（違っても縦横比が近ければ、中央で切り取って表示される）
-2. Web 版：`tools/build-web.sh` でビルドし直す（画像の内容が URL の `?v=` に入るので、ブラウザのキャッシュも自動で更新される）
-3. Windows 版：ビルドし直すと exe に埋め込まれる。ビルドせずに試すときは、exe の隣か作業フォルダに同じパス（`assets/images/...`）で置けば、そちらが優先される
-
-仕組み：
-
-- 画像は使う画面を開いたときに読み込み、長辺 1280px までに縮めて GPU に載せる（ミップマップつき）。同時に載せておくのは 10 枚まで（スマホのメモリ対策）
-- 読み込み中は「読み込み中…」、ファイルが無いときは「画像がありません」と書いた代わりの絵を出す
-- 地図の画像は、下の緯度経度の範囲に合わせて地図の上に置く。駅・街・鉄道・都県名はゲーム側で上に描く
-- 仮の画像を作り直す：`python3 tools/gen_placeholder_images.py --force`（`--force` なしなら、無いファイルだけ作る。本番の画像を上書きしないよう注意）
-
-## 共通のスタイル
-
-すべての画像で揃えるもの：
-
-- アニメ調の背景美術。やわらかい光で、色数は少なめ。ゲームの UI（深い緑・黒板色・オレンジのアクセント）になじむ色にする
-- 文字・看板の文字・ロゴ・実在の店名やブランドは入れない
-- 人物は小さく、顔がわからない程度にする
-- 実在の街だとわかる地形・街並みの特徴は入れるが、写真のような再現にはしない
-
-共通のプロンプト（英語、各画像の説明の前に付ける）：
+首都圏攻略マップの地図・16 の街の風景・16 の校舎は、`tools/gen_images.py` が描くフラットなイラストです。これをゲームの正式な絵として使います。
 
 ```
-anime background art, soft warm lighting, clean painterly style, muted palette with deep green and warm orange accents, no text, no signage lettering, no logos, no recognizable people
+python3 tools/gen_images.py                 # すべて描き直す
+python3 tools/gen_images.py kichijoji map   # 名前に一致するものだけ描き直す
 ```
+
+- 必要なもの：Python 3、Pillow、NumPy
+- 乱数は街の名前で固定してあるので、何度描いても同じ絵になります。絵を変えたいときはスクリプトを直して描き直します
+- 描いた PNG（`assets/images/`）もリポジトリに入れます。ビルドのときにスクリプトは動かしません
+
+## 描き方（スタイル）
+
+- **フラットなイラスト調**：輪郭線は描かず、色の面で描きます。2 倍の大きさで描いてから縮めるので、縁はなめらかです
+- **奥行き**：空のグラデーション → 雲 → 西の街では丹沢と富士山 → 遠くのビル（かすむ）→ 中景 → 手前、の順に重ねます。光のにじみや雲のぼかしは、縁が黒ずまないよう乗算済みアルファでぼかします
+- **時間帯**：昼・午後・夕暮れ・夜の 4 つ。夕暮れと夜は窓の明かりが増え、街灯が光ります
+- **季節**：夏（緑）・春（桜）・秋（銀杏の黄、紅葉の赤）で木の色を変えます
+- **人**：小さな人影だけで、顔は描きません
+- **文字**：街の絵には左下に駅名標ふうの名札（街の名前・読み・地方の色の帯）を入れます。校舎の看板には「あおぞら進学塾」と「〇〇校」を入れます。実在の店名・ロゴ・看板の文字は入れません
+- **地方の色**（名札の帯）：東京西部＝オレンジ、埼玉＝水色、都心＝黄緑、神奈川＝青、湾岸・千葉＝黄
 
 ## 1. 地図（1 枚）
 
 | ファイル | 大きさ | 内容 |
 |---|---|---|
-| `assets/images/map/shutoken_map.png` | 2048×1792（横 64 km × 縦 56 km の比） | 首都圏の地図の背景。真上から見たイラスト地図 |
+| `assets/images/map/shutoken_map.png` | 2048×1792 | 首都圏を真上から見た地図 |
 
-- 範囲：経度 139.3672〜140.0828、緯度 35.43〜35.94（中心 東経 139.725・北緯 35.685）。北が上。ゲームはこの範囲に合わせて画像を置くので、範囲と縦横比（2048:1792）は変えない
-- 入れるもの：東京湾の海岸線、多摩川・荒川・江戸川、都県境（うっすら）、23 区あたりの市街地の密集、丘陵の緑（多摩丘陵・狭山丘陵）
-- 入れないもの：駅・街の名前・鉄道（ゲーム側で描く）、文字
-- プロンプト例：`top-down illustrated map of the Tokyo metropolitan area, Tokyo Bay in the lower right, rivers Tama, Arakawa and Edogawa, dense city in the center, green hills in the west, fantasy RPG world map style, no text`
+- 範囲：東経 139.3672〜140.0828、北緯 35.43〜35.94（北が上）。ゲームはこの範囲に合わせて地図を置くので、範囲と縦横比は変えません（`townmap.rs` の `MAP_BOUNDS`）
+- 描くもの：陸のゆるい明暗、丘陵（多摩・狭山・柏の北）、鉄道沿いと都心に広がる市街地、公園、東京湾（岸に近いほど浅い色）、波、多摩川・荒川・江戸川、都県境
+- 描かないもの：駅・街・鉄道・地名（ゲームが上に描きます）
 
-## 2. 街の画像（16 枚）
+## 2. 街の風景（16 枚、1280×720）
 
-街を選んだときの詳細カードの上に出ます。大きさはすべて **1600×900（16:9）**。
+街を選んだときの詳細カードの上に出ます。
 
-| 地方 | 街 | ファイル | 描くもの |
-|---|---|---|---|
-| 東京西部 | 吉祥寺 | `assets/images/towns/town_kichijoji.png` | 井の頭公園の池とボート、木漏れ日。奥に駅前のアーケード街 |
-| 東京西部 | 成城学園前 | `assets/images/towns/town_seijogakuenmae.png` | 銀杏並木と生け垣の続く邸宅街、秋の黄色い並木道 |
-| 東京西部 | 調布 | `assets/images/towns/town_chofu.png` | 再開発された駅前広場と、遠くに多摩川の河川敷 |
-| 東京西部 | 府中 | `assets/images/towns/town_fuchu.png` | 大きな神社へ続くけやき並木の参道、落ち着いた街並み |
-| 東京西部 | 二子玉川 | `assets/images/towns/town_futakotamagawa.png` | 多摩川の広い河川敷と鉄橋、川向こうに新しい高層ビル |
-| 埼玉 | 浦和 | `assets/images/towns/town_urawa.png` | 緑の多い文教地区の住宅街、学校帰りの小学生（小さく）、レンガ調の歩道 |
-| 埼玉 | 大宮 | `assets/images/towns/town_omiya.png` | 何本もの線路が集まる大きな駅と、長い神社の参道の並木 |
-| 埼玉 | 所沢 | `assets/images/towns/town_tokorozawa.png` | 広い公園の芝生と空、郊外の住宅地、遠くに飛行機 |
-| 都心 | 渋谷 | `assets/images/towns/town_shibuya.png` | 夕暮れの大きな交差点と高層ビル群、坂の多い街 |
-| 都心 | 茗荷谷 | `assets/images/towns/town_myogadani.png` | 坂道の桜並木と、大学・学校の古い校舎が並ぶ文教地区 |
-| 神奈川 | 横浜 | `assets/images/towns/town_yokohama.png` | 港と観覧車、レンガ倉庫、海沿いの高層ビルの夜景 |
-| 神奈川 | たまプラーザ | `assets/images/towns/town_tamaplaza.png` | 緩やかな丘の並木道と、整った戸建ての住宅地 |
-| 神奈川 | 武蔵小杉 | `assets/images/towns/town_musashikosugi.png` | 林立するタワーマンションと、ベビーカーが行き交う広い歩道 |
-| 湾岸・千葉 | 豊洲 | `assets/images/towns/town_toyosu.png` | 運河と橋、ガラス張りのタワーマンション群、水辺の遊歩道 |
-| 湾岸・千葉 | 船橋 | `assets/images/towns/town_funabashi.png` | にぎやかな駅前の商店街と、遠くに東京湾の干潟 |
-| 湾岸・千葉 | 柏 | `assets/images/towns/town_kashiwa.png` | 駅前の二層の歩行者デッキと、街路樹の通り |
+| 地方 | 街 | ファイル | 時間帯・季節 | 景色 |
+|---|---|---|---|---|
+| 東京西部 | 吉祥寺 | `towns/town_kichijoji.png` | 昼・春 | 井の頭公園の池とスワンボート、木の橋、桜、奥に駅前の街、富士山 |
+| 東京西部 | 成城学園前 | `towns/town_seijogakuenmae.png` | 午後・秋 | 銀杏並木の道と邸宅街、落ち葉 |
+| 東京西部 | 調布 | `towns/town_chofu.png` | 昼・夏 | 駅前のバスロータリーと広場、人の流れ |
+| 東京西部 | 府中 | `towns/town_fuchu.png` | 午後・夏 | 鳥居へ続くけやき並木の参道 |
+| 東京西部 | 二子玉川 | `towns/town_futakotamagawa.png` | 夕暮れ・夏 | 多摩川の鉄橋を渡る電車、川向こうの高層ビル、河川敷 |
+| 埼玉 | 浦和 | `towns/town_urawa.png` | 昼・夏 | 学校のある住宅街、電柱と電線、ランドセルの子ども |
+| 埼玉 | 大宮 | `towns/town_omiya.png` | 昼・夏 | 何本もの線路と行き交う電車、架線柱、参道の並木 |
+| 埼玉 | 所沢 | `towns/town_tokorozawa.png` | 昼・夏 | 広い公園の芝生と飛行機雲 |
+| 都心 | 渋谷 | `towns/town_shibuya.png` | 夕暮れ | スクランブル交差点と大型ビジョン、人の波 |
+| 都心 | 茗荷谷 | `towns/town_myogadani.png` | 昼・春 | 桜並木の坂道と、時計塔のある古い校舎 |
+| 神奈川 | 横浜 | `towns/town_yokohama.png` | 夜 | 港の夜景、観覧車、帆の形のホテル、レンガ倉庫、水面の映り込み |
+| 神奈川 | たまプラーザ | `towns/town_tamaplaza.png` | 午後・秋（紅葉） | 丘の住宅地と曲がった並木道 |
+| 神奈川 | 武蔵小杉 | `towns/town_musashikosugi.png` | 昼・夏 | タワーマンション群と広い歩道、ベビーカー |
+| 湾岸・千葉 | 豊洲 | `towns/town_toyosu.png` | 夕暮れ | 運河と橋、ガラスのタワー、水面の映り込み |
+| 湾岸・千葉 | 船橋 | `towns/town_funabashi.png` | 午後 | 駅前のアーケード商店街 |
+| 湾岸・千葉 | 柏 | `towns/town_kashiwa.png` | 夕暮れ | 駅前の二層の歩行者デッキ |
 
-## 3. 校舎の画像（16 枚）
+## 3. 校舎（16 枚、1280×720）
 
-その街に開いた自塾の教室の外観です。教室タブの一番上と、地図の詳細カードに出ます。大きさはすべて **1600×900（16:9）**（教室タブでは上下を少し切って横長に表示）。
+その街に開いた自塾の教室の外観です。教室タブの一番上と、地図の詳細カードに出ます。時間帯と季節は街の絵と同じです。全校舎に共通で、オレンジの看板（本と星のマーク・「あおぞら進学塾」・校名）、のぼり旗、入口の掲示、明かりのついた教室で机に向かう生徒の影を描きます。
 
-塾の看板は色（オレンジ）と形だけにして、文字は入れません。全校舎で同じオレンジの看板・ロゴ風の形を共通にすると、チェーンらしく見えます。
+| 街 | ファイル | 校舎の型 |
+|---|---|---|
+| 吉祥寺 | `schools/school_kichijoji.png` | 駅前の雑居ビル（創業の本校） |
+| 成城学園前 | `schools/school_seijogakuenmae.png` | 白壁の低層 |
+| 調布 | `schools/school_chofu.png` | 中層のオフィスビル |
+| 府中 | `schools/school_fuchu.png` | 木目の外壁 |
+| 二子玉川 | `schools/school_futakotamagawa.png` | ガラス張り |
+| 浦和 | `schools/school_urawa.png` | レンガ |
+| 大宮 | `schools/school_omiya.png` | 中層のオフィスビル |
+| 所沢 | `schools/school_tokorozawa.png` | 郊外の横長の低層 |
+| 渋谷 | `schools/school_shibuya.png` | 高層の旗艦校 |
+| 茗荷谷 | `schools/school_myogadani.png` | 石張り |
+| 横浜 | `schools/school_yokohama.png` | 中層のオフィスビル（夜） |
+| たまプラーザ | `schools/school_tamaplaza.png` | 白壁の低層 |
+| 武蔵小杉 | `schools/school_musashikosugi.png` | タワーマンションの低層階 |
+| 豊洲 | `schools/school_toyosu.png` | ガラス張り |
+| 船橋 | `schools/school_funabashi.png` | 駅前の雑居ビル |
+| 柏 | `schools/school_kashiwa.png` | 中層のオフィスビル |
 
-| 地方 | 街 | ファイル | 校舎のようす |
-|---|---|---|---|
-| 東京西部 | 吉祥寺 | `assets/images/schools/school_kichijoji.png` | 創業の本校。駅前商店街の 4 階建ての雑居ビル、2〜3 階に塾。窓から明かり |
-| 東京西部 | 成城学園前 | `assets/images/schools/school_seijogakuenmae.png` | 邸宅街になじむ白壁・低層の上品な校舎、植栽と小さな門 |
-| 東京西部 | 調布 | `assets/images/schools/school_chofu.png` | 駅前の新しい中層ビルの 2 フロア、ガラス窓に机の列が見える |
-| 東京西部 | 府中 | `assets/images/schools/school_fuchu.png` | けやき並木沿いの木目調の 2 階建て、温かい雰囲気 |
-| 東京西部 | 二子玉川 | `assets/images/schools/school_futakotamagawa.png` | 多摩川を望むガラス張りのモダンなビル、テラス付き |
-| 埼玉 | 浦和 | `assets/images/schools/school_urawa.png` | レンガ調の落ち着いた 3 階建て、自転車置き場に子どもの自転車 |
-| 埼玉 | 大宮 | `assets/images/schools/school_omiya.png` | 駅前の大きなオフィスビルの 1 フロア、ビル壁面にオレンジの看板 |
-| 埼玉 | 所沢 | `assets/images/schools/school_tokorozawa.png` | 郊外の通り沿いの 2 階建て、広い駐輪場と送迎の車 |
-| 都心 | 渋谷 | `assets/images/schools/school_shibuya.png` | 旗艦校。坂の途中の高層ビル、大きなガラスのファサード、夜の明かり |
-| 都心 | 茗荷谷 | `assets/images/schools/school_myogadani.png` | 緑の多い大通り沿いの、石とガラスの品のある校舎 |
-| 神奈川 | 横浜 | `assets/images/schools/school_yokohama.png` | 港が見えるオフィスビル、海風を感じる明るい外観 |
-| 神奈川 | たまプラーザ | `assets/images/schools/school_tamaplaza.png` | 並木道沿いのベージュ外壁の低層校舎、花壇 |
-| 神奈川 | 武蔵小杉 | `assets/images/schools/school_musashikosugi.png` | タワーマンション低層階の商業フロアに入った教室 |
-| 湾岸・千葉 | 豊洲 | `assets/images/schools/school_toyosu.png` | 運河沿い、タワー群のふもとの近未来的な白いビル |
-| 湾岸・千葉 | 船橋 | `assets/images/schools/school_funabashi.png` | 駅前アーケード近くの雑居ビル、夕方の明かり |
-| 湾岸・千葉 | 柏 | `assets/images/schools/school_kashiwa.png` | 駅前の歩行者デッキに直結したビル、デッキから入口が見える |
+（パスはすべて `assets/images/` から）
+
+## ゲームでの使われ方
+
+- 画像は使う画面を開いたときに読み込み、長辺 1280px までに縮めて GPU に載せます（ミップマップつき）。同時に載せておくのは 10 枚までです
+- Windows 版は exe に埋め込みます（exe の隣か作業フォルダに同じパスのファイルがあれば、そちらを優先）。Web 版は fetch し、画像の内容をキャッシュ用のバージョン（`?v=`）に入れるので、描き直したらビルドし直すだけでブラウザにも反映されます
+- 読み込み中は「読み込み中…」、ファイルが無いときは「画像がありません」と書いた代わりの絵を出します
+- 街を増やすときは、`gen_images.py` の `TOWNS`、`crates/juku-app/src/images.rs` の `slug` と `image_table!` に足します（テストが漏れを見つけます）
