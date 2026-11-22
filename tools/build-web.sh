@@ -33,6 +33,10 @@ mv "$OUT/pkg/juku_web.js" "$OUT/pkg/$JS_NAME"
 sed -e "s/__JS__/$JS_NAME/" -e "s/__WASM__/$WASM_NAME/" web/index.html > "$OUT/index.html"
 cp web/_headers "$OUT/_headers"
 cp assets/fonts/*.subset.otf assets/fonts/OFL.txt "$OUT/assets/fonts/"
+mkdir -p "$OUT/assets/icon"
+cp assets/icon/icon.svg assets/icon/icon-32.png assets/icon/icon-180.png \
+   assets/icon/icon-192.png assets/icon/icon-512.png "$OUT/assets/icon/"
+cp web/manifest.webmanifest "$OUT/"
 
 # Cloudflare の 1 ファイル上限（25 MiB）に対するサイズチェック
 LIMIT=$((25 * 1024 * 1024))

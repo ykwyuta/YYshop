@@ -52,6 +52,25 @@ pub struct Config {
     pub fonts: FontSource,
     /// Web 版で描画先にする canvas の id
     pub canvas_id: String,
+    /// ウィンドウ・タスクバーのアイコン（PNG、ネイティブのみ）
+    pub icon_png: Option<&'static [u8]>,
+}
+
+/// PNG をウィンドウアイコンにする。
+#[cfg(not(target_arch = "wasm32"))]
+fn load_icon(bytes: &[u8]) -> Option<winit::window::Icon> {
+    let mut decoder = png::Decoder::new(std::io::Cursor::new(bytes));
+    decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
+    let mut reader = decoder.read_info().ok()?;
+    let mut buf = vec![0; reader.output_buffer_size()?];
+    let info = reader.next_frame(&mut buf).ok()?;
+    buf.truncate(info.buffer_size());
+    let rgba = match info.color_type {
+        png::ColorType::Rgba => buf,
+        png::ColorType::Rgb => buf.chunks(3).flat_map(|c| [c[0], c[1], c[2], 255]).collect(),
+        _ => return None,
+    };
+    winit::window::Icon::from_rgba(rgba, info.width, info.height).ok()
 }
 
 struct Gfx {
@@ -312,7 +331,8 @@ impl<A: App> ApplicationHandler<UserEvent> for Handler<A> {
         {
             attrs = attrs
                 .with_inner_size(LogicalSize::new(self.config.size.0, self.config.size.1))
-                .with_min_inner_size(LogicalSize::new(360.0, 560.0));
+                .with_min_inner_size(LogicalSize::new(360.0, 560.0))
+                .with_window_icon(self.config.icon_png.and_then(load_icon));
         }
         #[cfg(target_arch = "wasm32")]
         {
@@ -467,5 +487,14 @@ impl<A: App> ApplicationHandler<UserEvent> for Handler<A> {
             _ => {}
         }
         let _ = self.last_pointer_px;
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    #[test]
+    fn app_icon_decodes() {
+        let bytes = include_bytes!("../../../assets/icon/icon-256.png");
+        assert!(super::load_icon(bytes).is_some());
     }
 }

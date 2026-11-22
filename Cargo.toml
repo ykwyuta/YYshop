@@ -28,6 +28,7 @@ postcard = { version = "1", features = ["alloc"] }
 winit = "0.30"
 wgpu = "30"
 fontdue = "0.9"
+png = "0.18"
 bytemuck = { version = "1", features = ["derive"] }
 pollster = "1"
 log = "0.4"

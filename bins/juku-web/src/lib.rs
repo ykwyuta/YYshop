@@ -7,8 +7,6 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen(start)]
 pub fn start() {
     console_error_panic_hook::set_once();
-    let base = env!("CARGO_PKG_VERSION");
-    let _ = base;
     let config = juku_platform::Config {
         title: "合格の街 〜塾長シミュレーター〜".into(),
         size: (440.0, 900.0),
@@ -17,6 +15,7 @@ pub fn start() {
             bold: "assets/fonts/NotoSansJP-Bold.subset.otf".into(),
         },
         canvas_id: "app".into(),
+        icon_png: None,
     };
     juku_platform::run(config, juku_app::GameApp::new);
 }
