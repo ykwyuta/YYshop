@@ -4,20 +4,9 @@ use juku_render::{Color, FontWeight, Rect};
 use juku_sim::advisor::{Advice, Priority};
 use juku_ui::{Align, ButtonStyle, Id, Ui};
 
-use crate::art;
+use crate::portraits::{Expression, Portrait};
 
 pub const NAME: &str = "藤崎 さくら";
-
-/// 秘書の見た目（いつも同じ）。
-pub fn look() -> art::Look {
-    art::Look {
-        skin: Color::hex(0xF4D3BC),
-        hair: Color::hex(0x2B1D14),
-        shirt: Color::hex(0x2C3E66),
-        accent: Color::hex(0xF7A8C2),
-        long_hair: true,
-    }
-}
 
 /// ウインドウに表示するボタン。
 pub struct Button<'a> {
@@ -30,6 +19,7 @@ pub struct Button<'a> {
 pub fn window(
     ui: &mut Ui,
     area: Rect,
+    portrait: Portrait,
     badge: Option<(&str, Color)>,
     title: &str,
     body: &str,
@@ -61,10 +51,11 @@ pub fn window(
     ui.dl.rect_border(r, t.bar, 18.0, 2.0, t.accent);
 
     // 左：秘書
-    let p = Rect::new(r.x + 10.0, r.y + 10.0, portrait_w - 10.0, h - 20.0);
+    let pw = portrait_w - 10.0;
+    let ph = (pw + 26.0).min(h - 20.0);
+    let p = Rect::new(r.x + 10.0, r.y + (h - ph) * 0.5, pw, ph);
     ui.dl.rect_gradient(p, Color::hex(0x2F5A45), Color::hex(0x14201B), 12.0);
-    let fig_h = (p.h - 26.0).min(p.w * 1.35);
-    art::person(ui, Rect::new(p.x + 4.0, p.bottom() - 26.0 - fig_h, p.w - 8.0, fig_h), look(), true);
+    portrait.draw(ui, Rect::new(p.x + 4.0, p.y + 4.0, p.w - 8.0, p.h - 34.0));
     let plate = Rect::new(p.x, p.bottom() - 26.0, p.w, 26.0);
     ui.dl.rect(plate, Color::BLACK.with_alpha(0.55), 8.0);
     ui.text_in(
@@ -168,6 +159,7 @@ pub fn reports(ui: &mut Ui, area: Rect, items: &[Advice], index: usize) -> Optio
         let clicked = window(
             ui,
             area,
+            Portrait::secretary(Expression::Happy),
             None,
             "いまは特に問題はありません",
             "各教室も競合の動きも落ち着いています。気になることがあれば、すぐにお知らせしますね。",
@@ -179,6 +171,12 @@ pub fn reports(ui: &mut Ui, area: Rect, items: &[Advice], index: usize) -> Optio
     let i = index.min(items.len() - 1);
     let a = &items[i];
     let badge = priority_badge(ui, a.priority);
+    let expression = match a.priority {
+        Priority::Urgent => Expression::Worried,
+        Priority::Important => Expression::Focused,
+        Priority::Opportunity => Expression::Surprised,
+    };
+    let portrait = Portrait::secretary(expression);
     let has_prev = i > 0;
     let has_next = i + 1 < items.len();
     let mut buttons = Vec::new();
@@ -196,6 +194,6 @@ pub fn reports(ui: &mut Ui, area: Rect, items: &[Advice], index: usize) -> Optio
         buttons.push(Button { label: "閉じる", style: ButtonStyle::Primary });
         actions.push(Action::Close);
     }
-    let clicked = window(ui, area, Some(badge), &a.title, &a.body, Some((i, items.len())), &buttons);
+    let clicked = window(ui, area, portrait, Some(badge), &a.title, &a.body, Some((i, items.len())), &buttons);
     clicked.map(|k| std::mem::replace(&mut actions[k], Action::Close))
 }

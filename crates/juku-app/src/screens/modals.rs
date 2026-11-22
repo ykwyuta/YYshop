@@ -1,20 +1,38 @@
 //! モーダル：判断イベント・合格発表・確認。
 
 use juku_render::{FontWeight, Rect};
-use juku_sim::{Choice, GameEvent, OfferLevel, World};
+use juku_sim::{Choice, EventKind, GameEvent, OfferLevel, World};
 use juku_ui::{Align, ButtonStyle, Id, Ui};
 
 use crate::art;
 use crate::fmt::pct;
+use crate::portraits::{Expression, Portrait};
 
-pub fn event(ui: &mut Ui, ev: &GameEvent, classroom: Option<&str>) -> Option<Choice> {
+pub fn event(ui: &mut Ui, ev: &GameEvent, world: &World) -> Option<Choice> {
     let t = ui.theme;
+    let classroom = ev.classroom.and_then(|i| world.classrooms.get(i));
+    let portrait = classroom.and_then(|c| match ev.kind {
+        EventKind::StrugglingSenior { student_id } => {
+            c.students.iter().find(|s| s.id == student_id).map(Portrait::student)
+        }
+        EventKind::Poaching { teacher_id, .. } => c.teachers.iter().find(|t| t.id == teacher_id).map(Portrait::teacher),
+        _ => None,
+    });
+    let title_height = t.font_title + 4.0;
     ui.modal(Id::new("modal-event"), 460.0, |ui| {
         match classroom {
-            Some(name) => ui.caption(&format!("判断が必要です・{name}")),
+            Some(c) => ui.caption(&format!("判断が必要です・{}", c.name)),
             None => ui.caption("判断が必要です・本部"),
         };
-        ui.label_ex(&ev.title, t.font_title, FontWeight::Bold, t.text, Align::Left);
+        if let Some(portrait) = portrait {
+            let r = ui.alloc(48.0);
+            portrait.with_expression(Expression::Worried).draw(ui, Rect::new(r.x, r.y, r.h, r.h));
+            let title = Rect::new(r.x + 58.0, r.y + (r.h - title_height) * 0.5, r.w - 58.0, title_height);
+            let text = ui.fit_text(&ev.title, t.font_title, FontWeight::Bold, title.w);
+            ui.text_in(title, &text, t.font_title, FontWeight::Bold, t.text, Align::Left);
+        } else {
+            ui.label_ex(&ev.title, t.font_title, FontWeight::Bold, t.text, Align::Left);
+        }
         ui.space(4.0);
         ui.label(&ev.body);
         ui.space(8.0);
@@ -158,15 +176,17 @@ pub fn open_classroom(ui: &mut Ui, world: &World, area: usize) -> Option<Option<
         for (i, m) in world.manager_candidates.iter().enumerate() {
             ui.card(12.0, |ui| {
                 ui.set_spacing(4.0);
-                let r = ui.alloc(24.0);
-                ui.text_in(r, &m.name, t.font_body, FontWeight::Bold, t.text, Align::Left);
+                let r = ui.alloc(46.0);
+                Portrait::manager(m, Expression::Focused).draw(ui, Rect::new(r.x, r.y, r.h, r.h));
+                let name_row = Rect::new(r.x + 56.0, r.y, r.w - 56.0, 23.0);
+                ui.text_in(name_row, &m.name, t.font_body, FontWeight::Bold, t.text, Align::Left);
                 ui.text_in(
-                    r,
+                    name_row.translate(0.0, 23.0),
                     &format!("年俸 {}", crate::fmt::format_yen(m.salary)),
                     t.font_small,
                     FontWeight::Regular,
                     t.text_dim,
-                    Align::Right,
+                    Align::Left,
                 );
                 for (label, v) in
                     [("講師管理", m.staffing), ("指導", m.teaching), ("営業", m.sales), ("倫理", m.ethics)]
@@ -215,7 +235,10 @@ pub fn star_offer(ui: &mut Ui, world: &World, comp: usize, star: usize, classroo
     let classroom = classroom.min(n - 1);
     ui.modal(Id::new("modal-star"), 480.0, |ui| {
         ui.caption(&format!("スター講師の引き抜き・{}", c.name));
-        ui.label_ex(&format!("{} 先生", s.name), t.font_title, FontWeight::Bold, t.text, Align::Left);
+        let r = ui.alloc(52.0);
+        Portrait::teacher(s).with_expression(Expression::Focused).draw(ui, Rect::new(r.x, r.y, r.h, r.h));
+        let name_row = Rect::new(r.x + 62.0, r.y, r.w - 62.0, r.h);
+        ui.text_in(name_row, &format!("{} 先生", s.name), t.font_title, FontWeight::Bold, t.text, Align::Left);
         ui.kv_row("授業力 / 面倒見", &format!("{} / {}", s.skill, s.care), None);
         ui.kv_row("いまの年俸", &crate::fmt::format_yen(s.pay), None);
         let mut out = None;

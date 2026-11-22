@@ -105,6 +105,7 @@ pub(crate) const KIND_GLYPH: f32 = 1.0;
 const KIND_ARC: f32 = 2.0;
 const KIND_LINE: f32 = 3.0;
 const KIND_STAR: f32 = 4.0;
+const KIND_SPRITE: f32 = 5.0;
 
 const NO_CLIP: [f32; 4] = [-1.0e9, -1.0e9, 1.0e9, 1.0e9];
 
@@ -195,6 +196,19 @@ impl DrawList {
     /// 縦グラデーションの角丸矩形。
     pub fn rect_gradient(&mut self, r: Rect, top: Color, bottom: Color, radius: f32) {
         self.push(rect_instance(r, top, radius, 0.0, bottom, true));
+    }
+
+    /// 静的アトラスの UV 範囲を角丸で描く。
+    pub fn sprite(&mut self, r: Rect, uv: [f32; 4], radius: f32) {
+        self.push(Instance {
+            rect: [r.x, r.y, r.w, r.h],
+            color: Color::WHITE.arr(),
+            clip: NO_CLIP,
+            uv,
+            params: [KIND_SPRITE, radius, 0.0, 0.0],
+            params2: [0.0; 4],
+            color2: [0.0; 4],
+        });
     }
 
     pub fn circle(&mut self, cx: f32, cy: f32, radius: f32, color: Color) {

@@ -9,6 +9,7 @@
 //   2 = 円弧・リング（ドーナツグラフ）
 //   3 = 線分（カプセル）
 //   4 = 五芒星
+//   5 = スプライト（画像アトラス）
 
 struct Globals {
     // 画面サイズ（論理座標）
@@ -22,6 +23,8 @@ struct Globals {
 @group(0) @binding(0) var<uniform> globals: Globals;
 @group(0) @binding(1) var atlas_tex: texture_2d<f32>;
 @group(0) @binding(2) var atlas_samp: sampler;
+@group(0) @binding(3) var sprite_atlas: texture_2d<f32>;
+@group(0) @binding(4) var sprite_samp: sampler;
 
 struct Inst {
     @location(0) rect: vec4<f32>,
@@ -53,9 +56,9 @@ fn vs_main(@builtin(vertex_index) vi: u32, inst: Inst) -> VOut {
     );
     let c = corners[vi];
     let kind = inst.params.x;
-    // アンチエイリアス用に 1px 広げる（グリフ以外）
+    // 図形だけアンチエイリアス用に 1px 広げる
     var pad = 1.0 / globals.scale;
-    if (kind > 0.5 && kind < 1.5) {
+    if ((kind > 0.5 && kind < 1.5) || kind > 4.5) {
         pad = 0.0;
     }
     let origin = inst.rect.xy - vec2<f32>(pad, pad);
@@ -122,6 +125,15 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     if (kind > 0.5 && kind < 1.5) {
         let a = textureSample(atlas_tex, atlas_samp, in.tex).r;
         return finish(vec4<f32>(in.color.rgb, in.color.a * a));
+    }
+
+    if (kind > 4.5) {
+        let half = in.rect.zw * 0.5;
+        let radius = min(in.params.y, min(half.x, half.y));
+        let dist = sd_round_box(p - in.rect.xy - half, half, radius);
+        let coverage = clamp(0.5 - dist / aa, 0.0, 1.0);
+        let c = textureSampleLevel(sprite_atlas, sprite_samp, in.tex, 0.0);
+        return finish(vec4<f32>(c.rgb, c.a * coverage));
     }
 
     // 円弧・リング

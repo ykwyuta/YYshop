@@ -2,6 +2,7 @@
 
 mod art;
 mod fmt;
+mod portraits;
 mod screens;
 
 use juku_platform::{App, Ctx};
@@ -188,6 +189,8 @@ impl GameApp {
 }
 
 impl App for GameApp {
+    const SPRITE_ATLAS_PNG: Option<&'static [u8]> = Some(portraits::ATLAS_PNG);
+
     fn update(&mut self, ui: &mut Ui, ctx: &mut Ctx) {
         let s = ui.screen();
         let w = s.w.min(MAX_WIDTH);
@@ -387,9 +390,8 @@ impl App for GameApp {
                 self.new_game(now);
                 self.save(ctx);
             }
-        } else if let Some(ev) = world.pending_event.clone() {
-            let cname = ev.classroom.and_then(|i| world.classrooms.get(i)).map(|c| c.name.clone());
-            if let Some(choice) = screens::modals::event(ui, &ev, cname.as_deref()) {
+        } else if let Some(ev) = &world.pending_event {
+            if let Some(choice) = screens::modals::event(ui, ev, world) {
                 world.resolve_event(choice);
                 if choice == Choice::A || choice == Choice::B {
                     self.save(ctx);
