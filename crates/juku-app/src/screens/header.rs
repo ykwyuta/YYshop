@@ -78,9 +78,11 @@ pub fn draw(ui: &mut Ui, r: Rect, world: &mut World, ci: usize, reports: usize) 
     if ui.clicked(chip) {
         campus_list = true;
     }
+    let mut chip_right = chip.right();
     if arrows {
         let prev = Rect::new(name_x - 6.0, y - 3.0, 26.0, 24.0);
         let next = Rect::new(chip.right() + 2.0, y - 3.0, 26.0, 24.0);
+        chip_right = next.right();
         for (rr, left) in [(prev, true), (next, false)] {
             let (cx, cy) = rr.center();
             let d = if left { 4.0 } else { -4.0 };
@@ -95,7 +97,9 @@ pub fn draw(ui: &mut Ui, r: Rect, world: &mut World, ci: usize, reports: usize) 
             switch = Some((ci + 1) % n);
         }
     } else {
-        let addr = ui.fit_text(&c.address, t.font_small, FontWeight::Regular, 180.0);
+        // 住所は日付の左までに収める
+        let addr_w = (r.right() - pad - 150.0 - (chip.right() + 8.0)).max(0.0);
+        let addr = ui.fit_text(&c.address, t.font_small, FontWeight::Regular, addr_w.min(180.0));
         ui.text_in(
             Rect::new(chip.right() + 8.0, y, 200.0, 20.0),
             &addr,
@@ -115,16 +119,22 @@ pub fn draw(ui: &mut Ui, r: Rect, world: &mut World, ci: usize, reports: usize) 
         t.text,
         Align::Right,
     );
+    // 年度と週。幅が狭くて校舎名ボタンにかかるときは短くし、それでも入らなければ出さない
     let season = world.calendar.season().label();
-    let wk = format!("{}年度 第{}週・{}", world.calendar.school_year, world.calendar.week + 1, season);
-    ui.text_in(
-        Rect::new(r.x, r.y + 30.0, r.w - pad, 20.0),
-        &wk,
-        t.font_small,
-        FontWeight::Regular,
-        t.text_dim,
-        Align::Right,
-    );
+    let full = format!("{}年度 第{}週・{}", world.calendar.school_year, world.calendar.week + 1, season);
+    let short = format!("第{}週・{}", world.calendar.week + 1, season);
+    let room = r.right() - pad - (chip_right + 8.0);
+    let wk = [full, short].into_iter().find(|s| ui.measure(s, t.font_small, FontWeight::Regular) <= room);
+    if let Some(wk) = wk {
+        ui.text_in(
+            Rect::new(r.x, r.y + 30.0, r.w - pad, 20.0),
+            &wk,
+            t.font_small,
+            FontWeight::Regular,
+            t.text_dim,
+            Align::Right,
+        );
+    }
 
     // 2 行目：資金・生徒数・次の週へ
     let row = Rect::new(r.x + pad, r.y + 58.0, r.w - pad * 2.0, 40.0);
@@ -148,7 +158,10 @@ pub fn draw(ui: &mut Ui, r: Rect, world: &mut World, ci: usize, reports: usize) 
     let sx = row.x + 150.0;
     let students = world.classrooms[ci].students.len();
     let (slabel, svalue) = if n > 1 {
-        ("生徒（教室/全体）", format!("{}/{}", students, world.total_students()))
+        // 「次の週へ」ボタンにかからないよう、狭い画面では短くする
+        let long = "生徒（校舎/全体）";
+        let fits = sx + ui.measure(long, t.font_small, FontWeight::Regular) <= row.right() - 136.0;
+        (if fits { long } else { "生徒" }, format!("{}/{}", students, world.total_students()))
     } else {
         ("生徒", format!("{students}人"))
     };
