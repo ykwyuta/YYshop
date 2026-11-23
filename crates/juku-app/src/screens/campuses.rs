@@ -79,13 +79,17 @@ pub fn draw(ui: &mut Ui, world: &World, current: usize, sort: &mut usize) -> Opt
     action
 }
 
-/// 会社全体の要約（校舎数・生徒・利益・制覇）。
+/// 会社全体の要約（校舎数・生徒・利益・制覇）。利益は校舎の純利益の合計から本部の運営費を引いた額。
 fn summary(ui: &mut Ui, world: &World) {
     let t = ui.theme;
     let n = world.classrooms.len();
-    let net: i64 = (0..n).map(|ci| net_profit(world, ci)).sum();
+    let campus_net: i64 = (0..n).map(|ci| net_profit(world, ci)).sum();
+    // 本部の運営費（2 校舎目から）は直近の週の会社の損益から取る
+    let overhead = world.history.last().map(|h| h.hq.overhead).unwrap_or(0);
+    let net = campus_net - overhead;
     let (won, total) = world.conquest_progress();
     ui.card(12.0, |ui| {
+        ui.set_spacing(6.0);
         let r = ui.alloc(46.0);
         let items = [
             ("校舎", format!("{n}"), t.text),
@@ -104,6 +108,19 @@ fn summary(ui: &mut Ui, world: &World) {
                 t.font_body + 1.0,
                 FontWeight::Bold,
                 *color,
+                Align::Center,
+            );
+        }
+        if overhead > 0 {
+            ui.label_ex(
+                &format!(
+                    "純利益は、校舎の純利益の合計 {} から本部の運営費 {} を引いた額です。",
+                    format_yen(campus_net),
+                    format_yen(overhead)
+                ),
+                t.font_small - 1.0,
+                FontWeight::Regular,
+                t.text_dim,
                 Align::Center,
             );
         }
