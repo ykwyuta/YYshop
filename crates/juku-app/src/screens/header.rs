@@ -7,11 +7,12 @@ use juku_ui::{Align, ButtonStyle, Ui};
 use crate::fmt::format_yen;
 use crate::portraits::{manager_expression, Expression, Portrait};
 
-/// (週を進めたか, 切り替え先の教室)
 /// ヘッダーで起きたこと。
 pub struct HeaderResult {
     pub stepped: bool,
     pub switch: Option<usize>,
+    /// 校舎一覧を開く
+    pub campus_list: bool,
     /// 秘書を呼んだ
     pub secretary: bool,
 }
@@ -51,15 +52,35 @@ pub fn draw(ui: &mut Ui, r: Rect, world: &mut World, ci: usize, reports: usize) 
         ui.badge_at(name_x + w + 8.0, r.y + 7.0, "上場", t.star);
     }
 
+    // 校舎名のボタン（押すと校舎一覧）。複数あるときは左右の矢印でも順に切り替えられる
     let c = &world.classrooms[ci];
-    let label = if n > 1 { format!("{}（{}/{}）", c.name, ci + 1, n) } else { format!("{}・{}", c.name, c.address) };
-    if n > 1 {
-        // ‹ 教室名 › で切り替える
-        let lw = ui.measure(&label, t.font_small + 1.0, FontWeight::Bold);
-        let y = r.y + 30.0;
-        let prev = Rect::new(name_x - 6.0, y - 2.0, 26.0, 24.0);
-        let text_r = Rect::new(prev.right(), y, lw + 4.0, 20.0);
-        let next = Rect::new(text_r.right(), y - 2.0, 26.0, 24.0);
+    let mut campus_list = false;
+    let y = r.y + 30.0;
+    let arrows = n > 1;
+    let chip_x = if arrows { name_x + 22.0 } else { name_x - 4.0 };
+    let label = if arrows { format!("{}（{}/{}）", c.name, ci + 1, n) } else { c.name.clone() };
+    let lw = ui.measure(&label, t.font_small + 1.0, FontWeight::Bold);
+    let chip = Rect::new(chip_x, y - 3.0, lw + 34.0, 24.0);
+    let pressed = ui.pressed(chip);
+    ui.dl.rect_border(chip, if pressed { t.accent_dark } else { t.card }, 12.0, 1.5, t.accent);
+    ui.text_in(
+        Rect::new(chip.x + 10.0, chip.y, lw, chip.h),
+        &label,
+        t.font_small + 1.0,
+        FontWeight::Bold,
+        t.accent,
+        Align::Left,
+    );
+    // ▼（一覧が開くしるし）
+    let (vx, vy) = (chip.right() - 14.0, chip.y + chip.h * 0.5);
+    ui.dl.line(vx - 4.0, vy - 2.0, vx, vy + 2.5, 2.0, t.accent);
+    ui.dl.line(vx, vy + 2.5, vx + 4.0, vy - 2.0, 2.0, t.accent);
+    if ui.clicked(chip) {
+        campus_list = true;
+    }
+    if arrows {
+        let prev = Rect::new(name_x - 6.0, y - 3.0, 26.0, 24.0);
+        let next = Rect::new(chip.right() + 2.0, y - 3.0, 26.0, 24.0);
         for (rr, left) in [(prev, true), (next, false)] {
             let (cx, cy) = rr.center();
             let d = if left { 4.0 } else { -4.0 };
@@ -67,17 +88,17 @@ pub fn draw(ui: &mut Ui, r: Rect, world: &mut World, ci: usize, reports: usize) 
             ui.dl.line(cx + d, cy - 6.0, cx - d, cy, 2.5, col);
             ui.dl.line(cx - d, cy, cx + d, cy + 6.0, 2.5, col);
         }
-        ui.text_in(text_r, &label, t.font_small + 1.0, FontWeight::Bold, t.accent, Align::Center);
         if ui.clicked(prev) {
             switch = Some((ci + n - 1) % n);
         }
-        if ui.clicked(next) || ui.clicked(text_r) {
+        if ui.clicked(next) {
             switch = Some((ci + 1) % n);
         }
     } else {
+        let addr = ui.fit_text(&c.address, t.font_small, FontWeight::Regular, 180.0);
         ui.text_in(
-            Rect::new(name_x, r.y + 30.0, r.w, 20.0),
-            &label,
+            Rect::new(chip.right() + 8.0, y, 200.0, 20.0),
+            &addr,
             t.font_small,
             FontWeight::Regular,
             t.text_dim,
@@ -191,7 +212,7 @@ pub fn draw(ui: &mut Ui, r: Rect, world: &mut World, ci: usize, reports: usize) 
         );
     }
     let secretary = ui.clicked(sec);
-    HeaderResult { stepped, switch, secretary }
+    HeaderResult { stepped, switch, campus_list, secretary }
 }
 
 fn manager_message(world: &World, ci: usize) -> String {
