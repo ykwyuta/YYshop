@@ -83,6 +83,10 @@ pub struct GameApp {
     tab: Tab,
     /// 表示中の教室（World::classrooms の添字）
     selected: usize,
+    /// 校舎一覧を表示中（タブの中身の代わりに出す）
+    campus_list: bool,
+    /// 校舎一覧の並べ替え
+    campus_sort: usize,
     /// コース画面のセグメント（0 = 本科, 1 = 講習・特訓）
     course_segment: usize,
     /// 経理画面のセグメント（0 = 教室, 1 = 全社）
@@ -123,6 +127,8 @@ impl GameApp {
             save_summary,
             tab: Tab::Classroom,
             selected: 0,
+            campus_list: false,
+            campus_sort: 0,
             course_segment: 0,
             accounting_segment: 0,
             opening_area: None,
@@ -253,7 +259,14 @@ impl App for GameApp {
         let viewport = Rect::new(x0, s.y + HEADER_H, w, s.h - HEADER_H - TAB_H);
         let tab = self.tab;
         // 本部タブは会社全体、それ以外は教室ごとにスクロール位置を覚える
-        let id = Id::new("tab-scroll").with(tab as u64).with(if tab == Tab::Hq { 0 } else { ci as u64 + 1 });
+        let id = if self.campus_list {
+            Id::new("campus-list")
+        } else {
+            Id::new("tab-scroll").with(tab as u64).with(if tab == Tab::Hq { 0 } else { ci as u64 + 1 })
+        };
+        let campus_list = self.campus_list;
+        let campus_sort = &mut self.campus_sort;
+        let mut campus_action = None;
         {
             let world = self.world.as_mut().unwrap();
             let seg = &mut self.course_segment;
@@ -266,16 +279,37 @@ impl App for GameApp {
             ui.scroll_area(id, viewport, 0.0, |ui| {
                 ui.padded(16.0, 18.0, |ui| {
                     ui.set_spacing(16.0);
+                    if campus_list {
+                        campus_action = screens::campuses::draw(ui, world, ci, campus_sort);
+                        return;
+                    }
                     match tab {
                         Tab::Classroom => screens::classroom::draw(ui, world, ci),
                         Tab::Courses => screens::courses::draw(ui, world, ci, seg),
                         Tab::Marketing => screens::marketing::draw(ui, world, ci),
                         Tab::Accounting => screens::accounting::draw(ui, world, ci, acc_seg),
-                        Tab::Hq => hq_action = screens::hq::draw(ui, world, is_web, hq_seg, auto_report, map_area),
+                        Tab::Hq => hq_action = screens::hq::draw(ui, world, is_web, hq_seg, auto_report, map_area, ci),
                     }
                 });
             });
             let now = ui.input.time;
+            match campus_action {
+                Some(screens::campuses::CampusAction::Select(i)) => {
+                    self.selected = i;
+                    self.tab = Tab::Classroom;
+                    self.campus_list = false;
+                    let name = self.world.as_ref().unwrap().classrooms[i].name.clone();
+                    self.show_toast(format!("{name}に切り替えました"), now);
+                }
+                Some(screens::campuses::CampusAction::OpenNew) => {
+                    self.campus_list = false;
+                    self.tab = Tab::Hq;
+                    self.hq_section = 0;
+                    self.show_toast("首都圏攻略マップで、開校する街を選んでください", now);
+                }
+                Some(screens::campuses::CampusAction::Close) => self.campus_list = false,
+                None => {}
+            }
             match hq_action {
                 Some(screens::hq::HqAction::ShowExam(i)) => self.exam_view = Some(i),
                 Some(screens::hq::HqAction::NewGame) => self.confirm = Some(Confirm::NewGame),
@@ -287,6 +321,7 @@ impl App for GameApp {
                     self.selected = i;
                     self.tab = Tab::Classroom;
                 }
+                Some(screens::hq::HqAction::CampusList) => self.campus_list = true,
                 Some(screens::hq::HqAction::Open(area)) => self.opening_area = Some(area),
                 Some(screens::hq::HqAction::Toast(msg)) => self.show_toast(msg, now),
                 Some(screens::hq::HqAction::ForceReload) => self.confirm = Some(Confirm::Reload),
@@ -323,6 +358,9 @@ impl App for GameApp {
         if let Some(next) = hr.switch {
             self.selected = next;
         }
+        if hr.campus_list {
+            self.campus_list = !self.campus_list;
+        }
         if hr.secretary {
             let items = juku_sim::advisor::advise(self.world.as_ref().unwrap());
             for a in &items {
@@ -333,8 +371,9 @@ impl App for GameApp {
 
         // タブバー
         let bar = Rect::new(x0, s.bottom() - TAB_H, w, TAB_H);
-        if let Some(t) = draw_tab_bar(ui, bar, self.tab) {
+        if let Some(t) = draw_tab_bar(ui, bar, self.tab, self.campus_list) {
             self.tab = t;
+            self.campus_list = false;
         }
 
         // モーダル。このフレームで開いたばかりのモーダルには入力を渡さない
@@ -549,7 +588,8 @@ impl GameApp {
     }
 }
 
-fn draw_tab_bar(ui: &mut Ui, r: Rect, current: Tab) -> Option<Tab> {
+/// `list_open` の間（校舎一覧を表示中）はどのタブも選ばれていない見た目にし、押せば一覧を閉じてそのタブへ。
+fn draw_tab_bar(ui: &mut Ui, r: Rect, current: Tab, list_open: bool) -> Option<Tab> {
     let t = ui.theme;
     ui.dl.rect(r, t.bar, 0.0);
     ui.dl.rect(Rect::new(r.x, r.y, r.w, 1.0), t.card_border, 0.0);
@@ -558,7 +598,7 @@ fn draw_tab_bar(ui: &mut Ui, r: Rect, current: Tab) -> Option<Tab> {
     let mut out = None;
     for (i, tab) in Tab::ALL.iter().enumerate() {
         let cell = Rect::new(r.x + cw * i as f32, r.y, cw, r.h);
-        let active = *tab == current;
+        let active = *tab == current && !list_open;
         if active {
             ui.dl.rect(cell.shrink(6.0), t.card, 12.0);
         }

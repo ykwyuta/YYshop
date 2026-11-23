@@ -1,4 +1,5 @@
 pub mod accounting;
+pub mod campuses;
 pub mod classroom;
 pub mod courses;
 pub mod header;

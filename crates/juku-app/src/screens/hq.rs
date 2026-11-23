@@ -7,7 +7,7 @@ use juku_sim::{Calendar, ListingStatus, Season, TeacherKind, World};
 use juku_ui::{Align, ButtonStyle, Id, Series, Ui};
 
 use crate::fmt::{format_yen, pct};
-use crate::portraits::{manager_expression, Portrait};
+use crate::portraits::Portrait;
 
 pub enum HqAction {
     ShowExam(usize),
@@ -15,6 +15,8 @@ pub enum HqAction {
     Save,
     /// 教室を選んで教室タブへ
     Select(usize),
+    /// 校舎一覧を開く
+    CampusList,
     /// このエリアに開校する（教室長を選ぶ）
     Open(usize),
     Toast(String),
@@ -32,7 +34,7 @@ pub enum HqAction {
 
 pub const SECTIONS: [&str; 4] = ["経営", "財務・上場", "人材・教材", "その他"];
 
-/// `map_area` はタウンマップで選んでいるエリア。
+/// `map_area` はタウンマップで選んでいるエリア、`current` は表示中の校舎。
 pub fn draw(
     ui: &mut Ui,
     world: &mut World,
@@ -40,6 +42,7 @@ pub fn draw(
     section: &mut usize,
     auto_report: bool,
     map_area: &mut Option<usize>,
+    current: usize,
 ) -> Option<HqAction> {
     let mut action = None;
     if let Some(i) = ui.segmented(&SECTIONS, *section) {
@@ -47,7 +50,7 @@ pub fn draw(
     }
     match *section {
         0 => {
-            classrooms(ui, world, &mut action);
+            classrooms(ui, world, current, &mut action);
             crate::screens::townmap::draw(ui, world, map_area, &mut action);
             acquisitions(ui, world, &mut action);
         }
@@ -187,44 +190,17 @@ fn others(ui: &mut Ui, world: &mut World, is_web: bool, auto_report: bool, out: 
     }
 }
 
-fn classrooms(ui: &mut Ui, world: &World, action: &mut Option<HqAction>) {
-    let t = ui.theme;
-    ui.heading(&format!("教室一覧（{} 教室）", world.classrooms.len()));
-    for (ci, c) in world.classrooms.iter().enumerate() {
-        ui.card(16.0, |ui| {
-            ui.set_spacing(6.0);
-            let r = ui.alloc(26.0);
-            ui.text_in(r, &c.name, t.font_heading, FontWeight::Bold, t.text, Align::Left);
-            let net = c.last_report().map(|r| r.pnl.net_profit()).unwrap_or(0);
-            let nc = if net >= 0 { t.accent } else { t.negative };
-            ui.text_in(r, &format!("純利益 {}/週", format_yen(net)), t.font_body, FontWeight::Bold, nc, Align::Right);
-            let r = ui.alloc(38.0);
-            Portrait::manager(&c.manager, manager_expression(world, ci)).draw(ui, Rect::new(r.x, r.y, r.h, r.h));
-            let details =
-                format!("{}・教室長 {}・講師 {} 人", world.areas[c.area].name, c.manager.name, c.teachers.len());
-            let text = Rect::new(r.x + 48.0, r.y, r.w - 48.0, r.h);
-            let details = ui.fit_text(&details, t.font_small, FontWeight::Regular, text.w);
-            ui.text_in(text, &details, t.font_small, FontWeight::Regular, t.text_dim, Align::Left);
-            let r = ui.alloc(22.0);
-            ui.text_in(
-                r,
-                &format!("在籍 {} 人", c.students.len()),
-                t.font_body,
-                FontWeight::Regular,
-                t.text,
-                Align::Left,
-            );
-            ui.stars_at(r.x + 110.0, r.y + 3.0, 15.0, c.ratings.overall());
-            let delegated = c.manager.delegations.iter().filter(|d| **d).count();
-            ui.text_in(r, &format!("委任 {delegated}/4"), t.font_small, FontWeight::Regular, t.text_dim, Align::Right);
-            if ui.button("この教室を見る", ButtonStyle::Ghost) {
-                *action = Some(HqAction::Select(ci));
-            }
-        });
+fn classrooms(ui: &mut Ui, world: &World, current: usize, action: &mut Option<HqAction>) {
+    ui.heading(&format!("経営している校舎（{} 校舎）", world.classrooms.len()));
+    if ui.button("校舎一覧を開く（並べ替え・比較）", ButtonStyle::Secondary) {
+        *action = Some(HqAction::CampusList);
     }
-    if world.classrooms.len() > 1 {
-        ui.caption("画面上部の教室名の左右にある矢印で、教室を切り替えられます。教室が増えたら、教室長への業務委任を活用しましょう。");
+    for ci in 0..world.classrooms.len() {
+        if crate::screens::campuses::card(ui, world, ci, ci == current) {
+            *action = Some(HqAction::Select(ci));
+        }
     }
+    ui.caption("校舎をタップすると、その校舎の画面に切り替わります。画面上部の校舎名を押しても、いつでも校舎一覧を開けます。校舎が増えたら、教室長への業務委任を活用しましょう。");
 }
 
 fn materials_section(ui: &mut Ui, world: &mut World, action: &mut Option<HqAction>) {
